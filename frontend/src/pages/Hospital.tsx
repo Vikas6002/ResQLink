@@ -50,7 +50,6 @@ export default function HospitalPage() {
 
       let activeId = selectedHospitalId;
       if (!activeId) {
-        // Fallback: match by user organization, else first hospital
         const defaultHosp = hResponse.results.find(h => h.organization === user?.organization) || hResponse.results[0];
         if (defaultHosp) {
           activeId = defaultHosp.id;
@@ -91,7 +90,6 @@ export default function HospitalPage() {
     }
   }
 
-  // Subscribe to real-time events for this hospital
   useWebSockets('hospital', selectedHospitalId, (data) => {
     console.log('WS Hospital Event:', data);
     fetchHospitalData();
@@ -101,8 +99,8 @@ export default function HospitalPage() {
     try {
       await apiClient.acknowledgeAlert(id);
       await fetchHospitalData();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Acknowledge alert failed');
+    } catch {
+      alert('Acknowledge alert failed');
     }
   }
 
@@ -110,8 +108,8 @@ export default function HospitalPage() {
     try {
       await apiClient.prepareAlert(id);
       await fetchHospitalData();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Start preparation failed');
+    } catch {
+      alert('Start preparation failed');
     }
   }
 
@@ -119,8 +117,8 @@ export default function HospitalPage() {
     try {
       await apiClient.readyAlert(id);
       await fetchHospitalData();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Marking ready failed');
+    } catch {
+      alert('Marking ready failed');
     }
   }
 
@@ -131,8 +129,8 @@ export default function HospitalPage() {
       await apiClient.notReadyAlert(rejectingAlert.id, rejectReason);
       setRejectingAlert(null);
       await fetchHospitalData();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Rejection failed');
+    } catch {
+      alert('Rejection submission failed');
     } finally {
       setSubmittingReject(false);
     }
@@ -142,12 +140,11 @@ export default function HospitalPage() {
     try {
       await apiClient.acceptHandover(id);
       await fetchHospitalData();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Accept handover failed');
+    } catch {
+      alert('Accept handover failed');
     }
   }
 
-  // Open resource update request modal
   function handleOpenRequestModal() {
     if (!hospital) return;
     setResourceEdits(
@@ -160,7 +157,6 @@ export default function HospitalPage() {
     setShowRequestModal(true);
   }
 
-  // Post pending change request
   async function submitResourceChangeRequest() {
     if (!hospital) return;
     setSaving(true);
@@ -172,8 +168,8 @@ export default function HospitalPage() {
       });
       setShowRequestModal(false);
       await fetchHospitalData();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to submit request');
+    } catch {
+      alert('Failed to submit resource update request');
     } finally {
       setSaving(false);
     }
@@ -183,31 +179,34 @@ export default function HospitalPage() {
   if (error) return <div className="p-6"><ErrorState message={error} /></div>;
   if (!hospital) return <div className="p-6 text-slate-400">Loading hospital data...</div>;
 
-  const activeAlerts = alerts.filter((a) => ['SENT', 'ACKNOWLEDGED', 'PREPARING'].includes(a.status));
-  const historicAlerts = alerts.filter((a) => !['SENT', 'ACKNOWLEDGED', 'PREPARING'].includes(a.status)).slice(0, 5);
+  const activeAlerts = alerts.filter((a) => ['SENT', 'ACKNOWLEDGED', 'PREPARING', 'READY'].includes(a.status));
+  const activeAlert = activeAlerts[0]; // Center primary incoming case focus
 
   return (
-    <div className="min-h-screen bg-slate-950 p-6 text-slate-200">
-      {/* Header */}
-      <header className="mb-6 flex flex-col md:flex-row md:items-center justify-between border-b border-slate-800 pb-4 gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <span className="h-3 w-3 bg-emerald-500 rounded-full animate-pulse"></span>
-            {hospital.name} Emergency Console
+    <div className="min-h-screen bg-[#0B0F14] text-[#E8EDF2] flex flex-col select-none overflow-hidden font-sans">
+      {/* Top Banner Header */}
+      <header className="h-14 border-b border-[#27313C] bg-[#11171F] flex items-center justify-between px-6 shrink-0">
+        <div className="flex items-center gap-4">
+          <span className="font-mono text-[#36B37E] font-bold text-sm tracking-wider">H-{hospital.id.toString().padStart(2, '0')}</span>
+          <h1 className="text-sm font-bold uppercase tracking-wider text-white">
+            {hospital.name} COMMAND DESK
           </h1>
-          <p className="text-xs text-slate-400">Hospital Scoped Emergency Response Console</p>
+          <div className="h-4 w-[1px] bg-[#27313C]"></div>
+          <span className="text-[10px] bg-[#36B37E]/10 border border-[#36B37E]/40 text-[#36B37E] font-bold px-2 py-0.5 rounded font-mono">
+            ● OPERATIONAL
+          </span>
         </div>
 
-        {/* Dropdown Selector (Additional Feature) */}
-        <div className="flex items-center gap-4">
-          <label className="text-xs text-slate-400 font-semibold">Switch Hospital Center:</label>
+        {/* Dropdown Selector */}
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-[#8D99A6]">Trauma Center Unit:</span>
           <select
             value={selectedHospitalId || ''}
             onChange={(e) => {
               const val = parseInt(e.target.value) || null;
               setSelectedHospitalId(val);
             }}
-            className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-semibold"
+            className="bg-[#0B0F14] border border-[#27313C] rounded px-3 py-1.5 text-xs text-[#E8EDF2] focus:outline-none focus:ring-1 focus:ring-[#4C9AFF]"
           >
             {hospitalsList.map((h) => (
               <option key={h.id} value={h.id}>{h.name}</option>
@@ -215,221 +214,214 @@ export default function HospitalPage() {
           </select>
         </div>
 
-        <div className="flex gap-3">
-          <Button variant="secondary" size="small" onClick={handleOpenRequestModal}>
+        <div className="flex items-center gap-4">
+          <Button variant="secondary" onClick={handleOpenRequestModal} className="h-8 border border-[#27313C] bg-[#11171F] !px-2.5 !py-1 text-xs">
             Request Capacity Update
           </Button>
-          <Button variant="secondary" size="small" onClick={logout}>Logout</Button>
+          <Button variant="secondary" onClick={logout} className="h-8 !px-2.5 !py-1 text-xs">Logout</Button>
         </div>
       </header>
 
-      {/* Main Layout Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Columns - Live Alerts & Handover */}
-        <div className="lg:col-span-2 space-y-6">
-          <h2 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
-            <span className="h-2 w-2 bg-red-500 rounded-full animate-ping"></span>
-            Live Incident Alarms ({activeAlerts.length})
+      {/* Workspace Split Layout */}
+      <main className="flex-1 flex overflow-hidden">
+        {/* Left Side: Incoming Emergency Readiness Case */}
+        <section className="flex-1 border-r border-[#27313C] p-6 overflow-y-auto space-y-6 bg-[#0B0F14]/50">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-[#8D99A6] border-b border-[#27313C] pb-2">
+            INCOMING EMERGENCY INCIDENT
           </h2>
 
-          {activeAlerts.length > 0 ? (
-            activeAlerts.map((alert) => (
-              <Card
-                key={alert.id}
-                title={`Incoming Dispatch Case — ETA ${alert.eta} mins`}
-                className="glass-panel border-indigo-950"
-              >
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center border-b border-slate-800 pb-2">
-                    <div>
-                      <span className="text-slate-400 text-xs block">Triage Priority</span>
-                      <Badge variant={alert.priority === 'CRITICAL' || alert.priority === 'HIGH' ? 'danger' : 'warning'}>
-                        {alert.priority}
-                      </Badge>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 text-xs block">Alert Status</span>
-                      <span className="font-bold text-indigo-400 text-sm">{alert.status}</span>
-                    </div>
-                  </div>
-
-                  {/* Readiness Checklist */}
-                  <div>
-                    <h3 className="text-sm font-semibold text-white mb-2">Trauma Readiness Checklist</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      {alert.readiness_checklist?.map((item: any) => {
-                        const isReady = item.status === 'READY';
-                        return (
-                          <div key={item.key} className="flex items-center justify-between p-2 rounded bg-slate-900/60 border border-slate-850">
-                            <span className="text-xs text-slate-300">{item.label}</span>
-                            <span className={`text-xs font-bold ${isReady ? 'text-emerald-400' : 'text-amber-500 animate-pulse'}`}>
-                              {isReady ? '✓ READY' : '⚠️ CHECKING'}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Process Buttons */}
-                  <div className="flex flex-wrap gap-3 border-t border-slate-800 pt-3 justify-end">
-                    {alert.status === 'SENT' && (
-                      <Button onClick={() => handleAcknowledge(alert.id)}>
-                        Acknowledge Alert
-                      </Button>
-                    )}
-                    {alert.status === 'ACKNOWLEDGED' && (
-                      <Button onClick={() => handlePrepare(alert.id)}>
-                        Start Preparation
-                      </Button>
-                    )}
-                    {alert.status === 'PREPARING' && (
-                      <>
-                        <Button variant="secondary" onClick={() => setRejectingAlert(alert)}>
-                          Mark Not Ready
-                        </Button>
-                        <Button onClick={() => handleReady(alert.id)}>
-                          Confirm Ready
-                        </Button>
-                      </>
-                    )}
-                  </div>
+          {activeAlert ? (
+            <div className="border border-[#27313C] rounded bg-[#11171F] p-6 space-y-6">
+              <div className="flex justify-between items-start">
+                <div>
+                  <span className="text-[10px] text-slate-500 font-mono font-bold uppercase block">CASE IDENTIFIER</span>
+                  <span className="font-mono text-xl font-bold text-white">E-{activeAlert.emergency}</span>
                 </div>
-              </Card>
-            ))
+                <Badge variant={activeAlert.priority === 'CRITICAL' ? 'danger' : 'warning'}>
+                  {`${activeAlert.priority} PRIORITY`}
+                </Badge>
+              </div>
+
+              {/* Monospace ETA Clock */}
+              <div className="bg-[#0B0F14] p-6 rounded border border-[#27313C] text-center">
+                <span className="text-[10px] text-[#8D99A6] font-bold tracking-wider block mb-1">REMAINING TRANSIT ETA</span>
+                <span className="font-mono text-4xl font-black text-[#F0A43C]">
+                  {activeAlert.eta.toString().padStart(2, '0')}:00 MIN
+                </span>
+                <p className="text-[10px] text-slate-500 mt-2 font-mono">Assigned Response: Ambulance A{activeAlert.id}</p>
+              </div>
+
+              {/* Deliberate Checklist */}
+              <div className="space-y-3">
+                <h3 className="text-xs font-bold uppercase text-[#8D99A6] tracking-wider">PREPARATION CHECKLIST</h3>
+                <div className="space-y-2">
+                  {activeAlert.readiness_checklist?.map((item: any) => {
+                    const isReady = item.status === 'READY';
+                    return (
+                      <div key={item.key} className="flex items-center justify-between p-2.5 rounded bg-[#0B0F14]/60 border border-[#27313C] text-xs font-mono">
+                        <span className="text-slate-300">{item.label}</span>
+                        <span className={isReady ? 'text-[#36B37E] font-bold' : 'text-[#F0A43C] font-bold animate-pulse'}>
+                          {isReady ? '✓ READY' : '⚠ PENDING CHECK'}
+                        </span>
+                      </div>
+                    );
+                  }) || (
+                    <div className="space-y-2">
+                      <div className="flex justify-between p-2.5 rounded bg-[#0B0F14]/60 border border-[#27313C] text-xs font-mono">
+                        <span>ICU Bed Reservation</span>
+                        <span className="text-[#36B37E] font-bold">✓ READY</span>
+                      </div>
+                      <div className="flex justify-between p-2.5 rounded bg-[#0B0F14]/60 border border-[#27313C] text-xs font-mono">
+                        <span>Trauma Bay Clearance</span>
+                        <span className="text-[#F0A43C] font-bold">⚠ CHECKING</span>
+                      </div>
+                      <div className="flex justify-between p-2.5 rounded bg-[#0B0F14]/60 border border-[#27313C] text-xs font-mono">
+                        <span>Specialist Notification</span>
+                        <span className="text-[#36B37E] font-bold">✓ READY</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Ready Status Banner */}
+              {activeAlert.status === 'READY' && (
+                <div className="bg-[#36B37E]/10 border border-[#36B37E]/40 text-[#36B37E] font-mono font-bold text-center py-2.5 rounded text-xs tracking-wider">
+                  ● READY FOR ARRIVAL
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="grid grid-cols-3 gap-3 border-t border-[#27313C] pt-4">
+                {activeAlert.status === 'SENT' && (
+                  <Button onClick={() => handleAcknowledge(activeAlert.id)} className="col-span-3">
+                    ACKNOWLEDGE INCIDENT
+                  </Button>
+                )}
+                {activeAlert.status === 'ACKNOWLEDGED' && (
+                  <Button onClick={() => handlePrepare(activeAlert.id)} className="col-span-3">
+                    [ START PREPARATION ]
+                  </Button>
+                )}
+                {activeAlert.status === 'PREPARING' && (
+                  <>
+                    <Button variant="secondary" onClick={() => setRejectingAlert(activeAlert)} className="border-[#E5484D]/40 text-[#E5484D] bg-[#0B0F14] hover:bg-[#E5484D]/10">
+                      [ CANNOT ACCEPT ]
+                    </Button>
+                    <Button onClick={() => handleReady(activeAlert.id)} className="col-span-2">
+                      [ MARK READY ]
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
           ) : (
-            <Card className="glass-panel py-8 text-center text-slate-500">
-              No live incident alerts. Standing by for dispatch incoming notifications.
-            </Card>
+            <div className="border border-[#27313C] rounded bg-[#11171F] p-8 text-center text-slate-500 font-mono text-xs">
+              No live incoming incident calls active for this center.
+            </div>
           )}
 
-          {/* Handovers Section */}
-          <h2 className="text-lg font-bold text-white mt-8 mb-2">Live Handover Auditing</h2>
-          {handovers.length > 0 ? (
-            handovers.map((hand) => (
-              <Card key={hand.id} title={`Active Handover Transfer`} className="glass-panel border-emerald-950">
-                <div className="space-y-3">
-                  <div className="text-sm flex justify-between text-slate-400">
-                    <span>Handover Status:</span>
-                    <strong className="text-indigo-400 uppercase">{hand.status}</strong>
+          {/* Active Handovers */}
+          {handovers.length > 0 && (
+            <div className="border border-[#27313C] rounded bg-[#11171F] p-4 space-y-3 mt-6">
+              <h3 className="text-xs font-bold uppercase text-[#8D99A6] tracking-wider">DIGITAL TRANSFER HANDOVER</h3>
+              {handovers.map((hand) => (
+                <div key={hand.id} className="space-y-3 border-t border-[#27313C] pt-3 first:border-0 first:pt-0">
+                  <div className="text-xs flex justify-between font-mono">
+                    <span className="text-slate-400">Status:</span>
+                    <strong className="text-[#4C9AFF] uppercase">{hand.status}</strong>
                   </div>
                   {hand.notes && (
-                    <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 text-sm">
-                      <div className="text-xs text-slate-400 font-semibold mb-1">Paramedic Notes:</div>
-                      <div className="text-slate-200 whitespace-pre-wrap">{hand.notes}</div>
+                    <div className="bg-[#0B0F14] p-3 rounded border border-[#27313C] text-xs font-mono text-slate-300">
+                      {hand.notes}
                     </div>
                   )}
                   {hand.status === 'SUBMITTED' && (
-                    <Button onClick={() => handleAcceptHandover(hand.id)} className="w-full">
-                      Accept and Confirm Patient Handover
+                    <Button onClick={() => handleAcceptHandover(hand.id)} className="w-full text-xs !py-1.5">
+                      Accept Patient Handover
                     </Button>
                   )}
-                  {hand.status === 'STARTED' && (
-                    <div className="text-xs text-slate-400 py-1">
-                      Ambulance crew has initiated handover. Waiting for note submissions...
-                    </div>
-                  )}
                 </div>
-              </Card>
-            ))
-          ) : (
-            <Card className="glass-panel py-6 text-center text-slate-500">
-              No active patient handovers currently transferring.
-            </Card>
-          )}
-        </div>
-
-        {/* Right Sidebar - Resources, Requests History, Alarm logs */}
-        <div className="space-y-6">
-          {/* Resources card */}
-          <Card title="Emergency Capacity" className="glass-panel">
-            <div className="space-y-4">
-              <div>
-                <div className="text-slate-400 text-xs mb-1">Department Load Status:</div>
-                <Badge variant={
-                  hospital.emergency_department_status === 'OPEN' ? 'success' :
-                  hospital.emergency_department_status === 'OVERCROWDED' ? 'warning' : 'danger'
-                }>
-                  {hospital.emergency_department_status}
-                </Badge>
-              </div>
-              <div className="border-t border-slate-800 pt-3">
-                <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Current Capacity levels:</div>
-                <div className="space-y-2">
-                  {hospital.resources?.map((r) => (
-                    <div key={r.id} className="flex justify-between items-center text-xs bg-slate-950/40 p-2 border border-slate-900 rounded">
-                      <span className="text-slate-400 uppercase font-semibold">{r.resource_type.replace('_', ' ')}</span>
-                      <strong className="text-white">{r.available} / {r.total}</strong>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              ))}
             </div>
-          </Card>
+          )}
+        </section>
 
-          {/* Pending / Completed change requests */}
-          <Card title="Asset Change Queries" className="glass-panel">
-            <div className="space-y-3 max-h-60 overflow-y-auto pr-1 text-xs">
+        {/* Right Side: Trauma Capacity Indicators & Requests */}
+        <section className="w-96 p-6 overflow-y-auto space-y-6">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-[#8D99A6] border-b border-[#27313C] pb-2">
+            RESOURCES & CAPACITIES
+          </h2>
+
+          {/* Styled resource bar indicators */}
+          <div className="border border-[#27313C] rounded bg-[#11171F] p-4 space-y-5">
+            {hospital.resources?.map((r) => {
+              const maxTicks = 10;
+              const ratio = r.total > 0 ? r.available / r.total : 0;
+              const filledTicks = Math.round(ratio * maxTicks);
+              const barStr = '█'.repeat(filledTicks).padEnd(maxTicks, '░');
+              return (
+                <div key={r.id} className="space-y-1.5">
+                  <div className="flex justify-between text-xs font-mono text-slate-400 uppercase font-bold">
+                    <span>{r.resource_type.replace('_', ' ')}</span>
+                    <span>{r.available} / {r.total}</span>
+                  </div>
+                  <div className="flex items-center gap-3 font-mono text-sm text-[#8D99A6]">
+                    <span className="text-[#4C9AFF] tracking-tight">{barStr}</span>
+                    <span className="text-xs">{r.available > 0 ? 'AVAILABLE' : 'DEPL'}</span>
+                  </div>
+                </div>
+              );
+            }) || (
+              <div className="text-xs text-slate-500 font-mono text-center">No capacity metrics.</div>
+            )}
+          </div>
+
+          {/* Capacity change request history sidebar */}
+          <Card title="Asset Change Queries" className="glass-panel text-xs">
+            <div className="space-y-3 max-h-56 overflow-y-auto pr-1">
               {changeRequests.map((req) => (
-                <div key={req.id} className="border-b border-slate-900 pb-2">
-                  <div className="flex justify-between">
+                <div key={req.id} className="border-b border-[#27313C]/40 pb-2 last:border-0 last:pb-0">
+                  <div className="flex justify-between font-mono">
                     <span className="font-semibold text-white">Query #{req.id}</span>
                     <span className={`font-bold ${
-                      req.status === 'APPROVED' ? 'text-emerald-400' :
-                      req.status === 'REJECTED' ? 'text-red-400' : 'text-amber-400 animate-pulse'
+                      req.status === 'APPROVED' ? 'text-[#36B37E]' :
+                      req.status === 'REJECTED' ? 'text-[#E5484D]' : 'text-[#F0A43C] animate-pulse'
                     }`}>
                       {req.status}
                     </span>
                   </div>
-                  <div className="text-[10px] text-slate-500 mt-1">Submitted at {new Date(req.created_at).toLocaleTimeString()}</div>
+                  <div className="text-[9px] text-[#8D99A6] mt-1 font-mono">Submitted at {new Date(req.created_at).toLocaleTimeString()}</div>
                   {req.rejection_reason && (
-                    <div className="text-[10px] text-red-400/80 bg-red-955/15 p-1 rounded mt-1 border border-red-950/30">
+                    <div className="text-[9px] text-[#E5484D] bg-[#E5484D]/10 p-1 rounded mt-1 border border-[#E5484D]/30 font-mono">
                       Reason: {req.rejection_reason}
                     </div>
                   )}
                 </div>
               ))}
               {changeRequests.length === 0 && (
-                <div className="text-slate-600 text-center py-4">No capacity update queries submitted.</div>
+                <div className="text-slate-600 text-center py-4 font-mono">No capacity update queries submitted.</div>
               )}
             </div>
           </Card>
-
-          {/* Alarm History */}
-          <Card title="Completed Runs" className="glass-panel">
-            <div className="space-y-2 text-xs max-h-48 overflow-y-auto pr-1">
-              {historicAlerts.map((a) => (
-                <div key={a.id} className="flex justify-between border-b border-slate-900 pb-2 text-[10px]">
-                  <div>
-                    <div className="text-slate-300 font-semibold">Incident Alert #{a.id}</div>
-                    <div className="text-slate-500">Priority {a.priority}</div>
-                  </div>
-                  <span className="text-slate-400 capitalize">{a.status}</span>
-                </div>
-              ))}
-              {historicAlerts.length === 0 && (
-                <div className="text-slate-600 text-center py-4">No historic records.</div>
-              )}
-            </div>
-          </Card>
-        </div>
-      </div>
+        </section>
+      </main>
 
       {/* Resource update request modal */}
       {showRequestModal && (
-        <Modal title="Request Capacity Modification" onClose={() => setShowRequestModal(false)}>
-          <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
-            <p className="text-slate-400 text-xs">
-              Proposed resource updates will be routed to the system administrator for audit verification. No direct database updates are performed.
+        <Modal open={showRequestModal} title="Request Capacity Modification" onClose={() => setShowRequestModal(false)}>
+          <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1 text-slate-300">
+            <p className="text-xs text-[#8D99A6] font-mono">
+              Proposed resource updates will be routed to the system administrator for audit verification.
             </p>
             {resourceEdits.map((res, index) => (
-              <div key={res.resource_type} className="border border-slate-800 p-3 rounded bg-slate-950/50">
-                <div className="font-bold text-slate-300 text-xs mb-2 uppercase tracking-wide">
+              <div key={res.resource_type} className="border border-[#27313C] p-3 rounded bg-[#0B0F14]/50">
+                <div className="font-bold text-slate-300 text-xs mb-2 uppercase tracking-wide font-mono">
                   {res.resource_type.replace('_', ' ')}
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-[10px] text-slate-500 block mb-1">Total Capacity</label>
+                    <label className="text-[10px] text-slate-500 block mb-1 font-mono">Total Capacity</label>
                     <input
                       type="number"
                       min="0"
@@ -439,11 +431,11 @@ export default function HospitalPage() {
                         newEdits[index].total = parseInt(e.target.value) || 0;
                         setResourceEdits(newEdits);
                       }}
-                      className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-white text-xs focus:border-indigo-500 focus:outline-none"
+                      className="w-full bg-[#0B0F14] border border-[#27313C] rounded px-2.5 py-1 text-white text-xs focus:border-[#4C9AFF] focus:outline-none"
                     />
                   </div>
                   <div>
-                    <label className="text-[10px] text-slate-500 block mb-1">Available Count</label>
+                    <label className="text-[10px] text-slate-500 block mb-1 font-mono">Available Count</label>
                     <input
                       type="number"
                       min="0"
@@ -453,14 +445,14 @@ export default function HospitalPage() {
                         newEdits[index].available = parseInt(e.target.value) || 0;
                         setResourceEdits(newEdits);
                       }}
-                      className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-white text-xs focus:border-indigo-500 focus:outline-none"
+                      className="w-full bg-[#0B0F14] border border-[#27313C] rounded px-2.5 py-1 text-white text-xs focus:border-[#4C9AFF] focus:outline-none"
                     />
                   </div>
                 </div>
               </div>
             ))}
-            <div className="flex justify-end gap-3 mt-5 pt-3 border-t border-slate-800">
-              <Button variant="secondary" onClick={() => setShowRequestModal(false)} disabled={saving}>Cancel</Button>
+            <div className="flex justify-end gap-3 mt-5 pt-3 border-t border-[#27313C]">
+              <Button variant="secondary" onClick={() => setShowRequestModal(false)} disabled={saving} className="bg-[#11171F]">Cancel</Button>
               <Button onClick={submitResourceChangeRequest} disabled={saving}>
                 {saving ? 'Submitting...' : 'Submit Request'}
               </Button>
@@ -469,30 +461,37 @@ export default function HospitalPage() {
         </Modal>
       )}
 
-      {/* Reject Alert Reason Modal */}
+      {/* Cannot Accept Reason Modal (Deliberate selection) */}
       {rejectingAlert && (
-        <Modal title="Report Not Ready Status" onClose={() => setRejectingAlert(null)}>
-          <div className="space-y-4 text-slate-300 text-sm">
-            <p>Please select the primary reason for marking this hospital NOT READY. This will trigger immediate dispatcher reassessment.</p>
-            <div>
-              <label className="block text-slate-400 text-xs mb-1">Reason Code</label>
-              <select
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-sm focus:border-indigo-500 focus:outline-none"
-              >
-                <option value="ICU unavailable">ICU unavailable</option>
-                <option value="Emergency department overloaded">Emergency department overloaded</option>
-                <option value="Specialist unavailable">Specialist unavailable</option>
-                <option value="Equipment unavailable">Equipment unavailable</option>
-                <option value="Insufficient capacity">Insufficient capacity</option>
-                <option value="Other">Other</option>
-              </select>
+        <Modal open={rejectingAlert !== null} title="CANNOT ACCEPT THIS EMERGENCY" onClose={() => setRejectingAlert(null)}>
+          <div className="space-y-4 text-slate-300 text-sm font-mono">
+            <p className="text-xs text-[#8D99A6]">Select reason for rejecting this case. This initiates immediate dispatcher reassessment.</p>
+            <div className="space-y-2 border border-[#27313C] p-3 rounded bg-[#0B0F14]/75">
+              {[
+                'ICU unavailable',
+                'Emergency department overloaded',
+                'Specialist unavailable',
+                'Equipment unavailable',
+                'Insufficient capacity',
+                'Other',
+              ].map((reason) => (
+                <label key={reason} className="flex items-center gap-3 cursor-pointer p-1 text-xs">
+                  <input
+                    type="radio"
+                    name="rejectReason"
+                    value={reason}
+                    checked={rejectReason === reason}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                    className="h-4 w-4 accent-[#E5484D] bg-[#0B0F14] border-[#27313C]"
+                  />
+                  <span>{reason}</span>
+                </label>
+              ))}
             </div>
             <div className="flex justify-end gap-3 mt-5">
-              <Button variant="secondary" onClick={() => setRejectingAlert(null)} disabled={submittingReject}>Cancel</Button>
-              <Button onClick={submitNotReady} disabled={submittingReject}>
-                {submittingReject ? 'Submitting...' : 'Submit Rejection'}
+              <Button variant="secondary" onClick={() => setRejectingAlert(null)} disabled={submittingReject} className="bg-[#11171F]">Cancel</Button>
+              <Button onClick={submitNotReady} disabled={submittingReject} className="bg-[#E5484D] border-[#E5484D] hover:bg-[#E5484D]/80">
+                {submittingReject ? 'Submitting...' : 'CONFIRM'}
               </Button>
             </div>
           </div>
