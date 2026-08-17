@@ -285,7 +285,8 @@ export default function DispatcherPage() {
                     </div>
                   )}
                 </div>
-              ))}
+              );
+            })}
             {emergencies.length === 0 && (
               <div className="p-8 text-center text-xs text-slate-600">No emergencies active.</div>
             )}
