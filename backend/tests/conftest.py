@@ -82,14 +82,15 @@ def hospital_staff_user(db, hospital_org):
 
 
 @pytest.fixture
-def auth_client(api_client, dispatcher_user):
-    response = api_client.post(
+def auth_client(dispatcher_user):
+    client = APIClient()
+    response = client.post(
         "/api/auth/login/",
         {"email": dispatcher_user.email, "password": "TestPass123!"},
         format="json",
     )
-    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {response.data['access']}")
-    return api_client
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {response.data['access']}")
+    return client
 
 
 @pytest.fixture
@@ -106,6 +107,18 @@ def hospital(db, hospital_org):
     )
     HospitalResource.objects.create(
         hospital=h, resource_type=ResourceType.EMERGENCY_BED, total=20, available=10
+    )
+    HospitalResource.objects.create(
+        hospital=h, resource_type=ResourceType.VENTILATOR, total=5, available=3
+    )
+    HospitalResource.objects.create(
+        hospital=h, resource_type=ResourceType.OXYGEN, total=15, available=8
+    )
+    HospitalResource.objects.create(
+        hospital=h, resource_type=ResourceType.OPERATING_ROOM, total=4, available=2
+    )
+    HospitalResource.objects.create(
+        hospital=h, resource_type=ResourceType.SPECIALIST, total=5, available=3
     )
     return h
 

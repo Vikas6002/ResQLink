@@ -8,7 +8,9 @@ from config.exceptions import ValidationServiceError
 
 from .models import Emergency
 from .serializers import (
+    EmergencyApproveReassignmentSerializer,
     EmergencyCreateSerializer,
+    EmergencySelectHospitalSerializer,
     EmergencySerializer,
     EmergencyStatusUpdateSerializer,
     EmergencyVerifySerializer,
@@ -24,7 +26,7 @@ class EmergencyViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_permissions(self):
-        if self.action in ("create", "verify", "update_status"):
+        if self.action in ("create", "verify", "update_status", "select_hospital", "approve_reassignment"):
             return [IsDispatcher()]
         return super().get_permissions()
 
@@ -77,3 +79,50 @@ class EmergencyViewSet(viewsets.ModelViewSet):
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(EmergencySerializer(emergency).data)
+
+    @action(detail=True, methods=["post"], url_path="select-hospital")
+    def select_hospital(self, request, pk=None):
+        emergency = self.get_object()
+        serializer = EmergencySelectHospitalSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        from hospitals import alert_services
+        from hospitals.alert_serializers import HospitalAlertSerializer
+
+        try:
+            alert = alert_services.select_hospital_for_emergency(
+                emergency=emergency,
+                hospital_id=serializer.validated_data["hospital_id"],
+                dispatcher=request.user,
+                eta=serializer.validated_data.get("eta"),
+            )
+        except Exception as exc:
+            msg = exc.message if hasattr(exc, "message") else str(exc)
+            return Response({"detail": msg}, status=status.HTTP_400_BAD_REQUEST)
+        emergency.refresh_from_db()
+        return Response({
+            "emergency": EmergencySerializer(emergency).data,
+            "alert": HospitalAlertSerializer(alert).data,
+        })
+
+    @action(detail=True, methods=["post"], url_path="approve-reassignment")
+    def approve_reassignment(self, request, pk=None):
+        emergency = self.get_object()
+        serializer = EmergencyApproveReassignmentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        from hospitals import alert_services
+        from hospitals.alert_serializers import HospitalAlertSerializer
+
+        try:
+            alert = alert_services.approve_reassignment(
+                emergency=emergency,
+                hospital_id=serializer.validated_data["hospital_id"],
+                dispatcher=request.user,
+            )
+        except Exception as exc:
+            msg = exc.message if hasattr(exc, "message") else str(exc)
+            return Response({"detail": msg}, status=status.HTTP_400_BAD_REQUEST)
+        emergency.refresh_from_db()
+        return Response({
+            "emergency": EmergencySerializer(emergency).data,
+            "alert": HospitalAlertSerializer(alert).data,
+        })

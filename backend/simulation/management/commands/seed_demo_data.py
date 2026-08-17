@@ -141,3 +141,6 @@ class Command(BaseCommand):
         for email, name, role, _ in demo_users:
             self.stdout.write(f"  {role}: {email} / {DEMO_PASSWORD}")
         self.stdout.write(f"  HOSPITAL_STAFF: demo.hospital@resqlink.local / {DEMO_PASSWORD}")
+
+        from django.core.management import call_command
+        call_command("seed_road_network")

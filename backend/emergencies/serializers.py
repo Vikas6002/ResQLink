@@ -41,6 +41,8 @@ class EmergencySerializer(serializers.ModelSerializer):
             "verified_by_name",
             "verified_at",
             "status",
+            "selected_hospital",
+            "rejected_hospital_ids",
             "created_by",
             "created_by_name",
             "created_at",
@@ -80,3 +82,12 @@ class EmergencyVerifySerializer(serializers.Serializer):
 
 class EmergencyStatusUpdateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=Emergency.status.field.choices)
+
+
+class EmergencySelectHospitalSerializer(serializers.Serializer):
+    hospital_id = serializers.IntegerField()
+    eta = serializers.FloatField(required=False)
+
+
+class EmergencyApproveReassignmentSerializer(serializers.Serializer):
+    hospital_id = serializers.IntegerField()

@@ -67,3 +67,54 @@ class HospitalResource(models.Model):
 
     def __str__(self):
         return f"{self.hospital.name}: {self.resource_type}"
+
+
+class HospitalAlertStatus(models.TextChoices):
+    SENT = "SENT", "Sent"
+    ACKNOWLEDGED = "ACKNOWLEDGED", "Acknowledged"
+    PREPARING = "PREPARING", "Preparing"
+    READY = "READY", "Ready"
+    NOT_READY = "NOT_READY", "Not Ready"
+    RESPONSE_TIMEOUT = "RESPONSE_TIMEOUT", "Response Timeout"
+    CANCELLED = "CANCELLED", "Cancelled"
+
+
+class HospitalAlert(models.Model):
+    emergency = models.ForeignKey(
+        "emergencies.Emergency",
+        on_delete=models.CASCADE,
+        related_name="hospital_alerts",
+    )
+    hospital = models.ForeignKey(
+        Hospital,
+        on_delete=models.CASCADE,
+        related_name="alerts",
+    )
+    priority = models.CharField(max_length=16)
+    eta = models.FloatField(help_text="Estimated time of arrival in minutes")
+    status = models.CharField(
+        max_length=32,
+        choices=HospitalAlertStatus.choices,
+        default=HospitalAlertStatus.SENT,
+    )
+    response_deadline = models.DateTimeField(null=True, blank=True)
+    readiness_checklist = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    preparation_started_at = models.DateTimeField(null=True, blank=True)
+    ready_at = models.DateTimeField(null=True, blank=True)
+    not_ready_at = models.DateTimeField(null=True, blank=True)
+    not_ready_reason = models.TextField(blank=True)
+    responded_by = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="hospital_alerts_responded",
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Alert {self.id} ({self.status}) for emergency {self.emergency_id}"

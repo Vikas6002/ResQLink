@@ -24,12 +24,14 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
+    "channels",
     "accounts",
     "emergencies",
     "ambulances",
     "hospitals",
     "dispatch",
     "optimization",
+    "routes",
     "realtime",
     "simulation",
     "analytics",
@@ -120,3 +122,14 @@ SIMPLE_JWT = {
 }
 
 CORS_ALLOW_ALL_ORIGINS = DEBUG  # frontend dev; tighten in production
+
+REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
+HOSPITAL_ALERT_TIMEOUT_SECONDS = int(os.getenv("HOSPITAL_ALERT_TIMEOUT_SECONDS", "30"))
+ROUTE_REROUTE_THRESHOLD = float(os.getenv("ROUTE_REROUTE_THRESHOLD", "0.15"))
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {"hosts": [REDIS_URL]},
+    }
+}

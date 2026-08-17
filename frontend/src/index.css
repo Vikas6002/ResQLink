@@ -2,6 +2,100 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+@layer base {
+  body {
+    @apply bg-slate-950 text-slate-100 antialiased font-sans selection:bg-indigo-500 selection:text-white;
+  }
+}
+
+/* Glassmorphism Styles */
+.glass-panel {
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-panel-hover {
+  @apply transition-all duration-300 ease-out;
+}
+.glass-panel-hover:hover {
+  background: rgba(15, 23, 42, 0.8);
+  border-color: rgba(99, 102, 241, 0.25);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  transform: translateY(-2px);
+}
+
+/* Status Badge Gradients */
+.badge-critical {
+  @apply bg-red-950/80 text-red-400 border border-red-800/60 shadow-lg shadow-red-950/40;
+}
+.badge-high {
+  @apply bg-orange-950/80 text-orange-400 border border-orange-850/60 shadow-lg shadow-orange-950/40;
+}
+.badge-medium {
+  @apply bg-amber-955/80 text-amber-400 border border-amber-800/60 shadow-lg shadow-amber-950/40;
+}
+.badge-low {
+  @apply bg-emerald-950/80 text-emerald-400 border border-emerald-800/60 shadow-lg shadow-emerald-950/40;
+}
+
+/* Map Sim styling */
+.map-grid {
+  background-image: radial-gradient(rgba(99, 102, 241, 0.15) 1.5px, transparent 1.5px);
+  background-size: 24px 24px;
+}
+
+/* Keyframe animations */
+@keyframes pulse-critical {
+  0%, 100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 4px rgba(239, 68, 68, 0.7));
+  }
+  50% {
+    transform: scale(1.2);
+    filter: drop-shadow(0 0 12px rgba(239, 68, 68, 1));
+  }
+}
+
+.animate-pulse-critical {
+  animation: pulse-critical 2s infinite ease-in-out;
+}
+
+@keyframes pulse-ready {
+  0%, 100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 4px rgba(16, 185, 129, 0.7));
+  }
+  50% {
+    transform: scale(1.15);
+    filter: drop-shadow(0 0 10px rgba(16, 185, 129, 1));
+  }
+}
+
+.animate-pulse-ready {
+  animation: pulse-ready 2.5s infinite ease-in-out;
+}
+
+@keyframes flow-active {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+
+.animate-flow-active {
+  stroke-dasharray: 6, 4;
+  animation: flow-active 1.5s linear infinite;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  @apply bg-slate-950;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-800 rounded-full hover:bg-slate-700;
 }

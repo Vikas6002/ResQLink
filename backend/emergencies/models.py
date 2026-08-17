@@ -36,6 +36,21 @@ class EmergencyEventType(models.TextChoices):
     EMERGENCY_VERIFIED = "EMERGENCY_VERIFIED", "Emergency Verified"
     AMBULANCE_ASSIGNED = "AMBULANCE_ASSIGNED", "Ambulance Assigned"
     HOSPITAL_RECOMMENDED = "HOSPITAL_RECOMMENDED", "Hospital Recommended"
+    HOSPITAL_SELECTED = "HOSPITAL_SELECTED", "Hospital Selected"
+    HOSPITAL_ALERT_SENT = "HOSPITAL_ALERT_SENT", "Hospital Alert Sent"
+    HOSPITAL_ALERT_ACKNOWLEDGED = "HOSPITAL_ALERT_ACKNOWLEDGED", "Hospital Alert Acknowledged"
+    HOSPITAL_PREPARATION_STARTED = "HOSPITAL_PREPARATION_STARTED", "Hospital Preparation Started"
+    HOSPITAL_READY = "HOSPITAL_READY", "Hospital Ready"
+    HOSPITAL_NOT_READY = "HOSPITAL_NOT_READY", "Hospital Not Ready"
+    HOSPITAL_RESPONSE_TIMEOUT = "HOSPITAL_RESPONSE_TIMEOUT", "Hospital Response Timeout"
+    HOSPITAL_REASSIGNED = "HOSPITAL_REASSIGNED", "Hospital Reassigned"
+    ROUTE_OPTIMIZED = "ROUTE_OPTIMIZED", "Route Optimized"
+    ROUTE_CHANGED = "ROUTE_CHANGED", "Route Changed"
+    AMBULANCE_LOCATION_UPDATED = "AMBULANCE_LOCATION_UPDATED", "Ambulance Location Updated"
+    HANDOVER_STARTED = "HANDOVER_STARTED", "Handover Started"
+    HANDOVER_SUBMITTED = "HANDOVER_SUBMITTED", "Handover Submitted"
+    HANDOVER_ACCEPTED = "HANDOVER_ACCEPTED", "Handover Accepted"
+    HANDOVER_COMPLETED = "HANDOVER_COMPLETED", "Handover Completed"
     STATUS_CHANGED = "STATUS_CHANGED", "Status Changed"
 
 
@@ -67,6 +82,14 @@ class Emergency(models.Model):
         choices=EmergencyStatus.choices,
         default=EmergencyStatus.CREATED,
     )
+    selected_hospital = models.ForeignKey(
+        "hospitals.Hospital",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="selected_emergencies",
+    )
+    rejected_hospital_ids = models.JSONField(default=list, blank=True)
     created_by = models.ForeignKey(
         "accounts.User",
         on_delete=models.SET_NULL,
