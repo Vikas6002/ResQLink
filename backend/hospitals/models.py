@@ -118,3 +118,54 @@ class HospitalAlert(models.Model):
 
     def __str__(self):
         return f"Alert {self.id} ({self.status}) for emergency {self.emergency_id}"
+
+
+class AssetChangeRequest(models.Model):
+    ASSET_TYPE_CHOICES = [
+        ("HOSPITAL", "Hospital"),
+        ("AMBULANCE", "Ambulance"),
+    ]
+    STATUS_CHOICES = [
+        ("PENDING", "Pending"),
+        ("APPROVED", "Approved"),
+        ("REJECTED", "Rejected"),
+    ]
+
+    asset_type = models.CharField(max_length=20, choices=ASSET_TYPE_CHOICES)
+    hospital = models.ForeignKey(
+        "hospitals.Hospital",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="change_requests",
+    )
+    ambulance = models.ForeignKey(
+        "ambulances.Ambulance",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="change_requests",
+    )
+    requested_changes = models.JSONField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="PENDING")
+    created_by = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.CASCADE,
+        related_name="created_change_requests",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    reviewed_by = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="reviewed_change_requests",
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    rejection_reason = models.TextField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"ChangeRequest {self.id} ({self.asset_type} - {self.status})"

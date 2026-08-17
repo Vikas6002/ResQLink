@@ -164,6 +164,24 @@ export interface OptimizeHospitalResponse {
   }>;
 }
 
+export interface AssetChangeRequest {
+  id: number;
+  asset_type: 'HOSPITAL' | 'AMBULANCE';
+  hospital: number | null;
+  hospital_name?: string;
+  ambulance: number | null;
+  ambulance_number?: string;
+  requested_changes: any[];
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  created_by: number;
+  created_by_name?: string;
+  created_at: string;
+  reviewed_by: number | null;
+  reviewed_by_name?: string;
+  reviewed_at: string | null;
+  rejection_reason: string | null;
+}
+
 class ApiClient {
   private accessToken: string | null = null;
 
@@ -406,6 +424,31 @@ class ApiClient {
   completeHandover(id: number) {
     return this.request<Handover>(`/handovers/${id}/complete/`, {
       method: 'POST',
+    });
+  }
+
+  // Asset change requests
+  getAssetChangeRequests() {
+    return this.request<{ results: AssetChangeRequest[] }>('/asset-change-requests/');
+  }
+
+  createAssetChangeRequest(data: any) {
+    return this.request<AssetChangeRequest>('/asset-change-requests/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  approveAssetChangeRequest(id: number) {
+    return this.request<AssetChangeRequest>(`/asset-change-requests/${id}/approve/`, {
+      method: 'POST',
+    });
+  }
+
+  rejectAssetChangeRequest(id: number, reason: string) {
+    return this.request<AssetChangeRequest>(`/asset-change-requests/${id}/reject/`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
     });
   }
 }

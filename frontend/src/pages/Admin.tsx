@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../auth/AuthContext';
-import { apiClient, type AuthUser, type Hospital, type Ambulance } from '../api/client';
+import { useWebSockets } from '../auth/useWebSockets';
+import { apiClient, type AuthUser, type Hospital, type Ambulance, type AssetChangeRequest } from '../api/client';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
 import { Badge } from '../components/Badge';
@@ -13,33 +14,34 @@ export default function AdminPage() {
   const [users, setUsers] = useState<AuthUser[]>([]);
   const [hospitals, setHospitals] = useState<Hospital[]>([]);
   const [ambulances, setAmbulances] = useState<Ambulance[]>([]);
+  const [changeRequests, setChangeRequests] = useState<AssetChangeRequest[]>([]);
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-
-  // Editing state
-  const [editingHospital, setEditingHospital] = useState<Hospital | null>(null);
-  const [editingAmbulance, setEditingAmbulance] = useState<Ambulance | null>(null);
-  const [resourceEdits, setResourceEdits] = useState<any[]>([]);
-  const [equipmentEdits, setEquipmentEdits] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
+
+  // Reject Request Modal state
+  const [rejectingReq, setRejectingReq] = useState<AssetChangeRequest | null>(null);
+  const [rejectReason, setRejectReason] = useState('Insufficient proof of capacity');
 
   useEffect(() => {
     fetchData();
+    const interval = setInterval(fetchData, 4500);
+    return () => clearInterval(interval);
   }, []);
 
   async function fetchData() {
-    setLoading(true);
-    setError('');
     try {
-      const [uData, hData, aData] = await Promise.all([
+      const [uData, hData, aData, rData] = await Promise.all([
         apiClient.getUsers().catch(() => ({ results: [] })),
         apiClient.getHospitals().catch(() => ({ results: [] })),
         apiClient.getAmbulances().catch(() => ({ results: [] })),
+        apiClient.getAssetChangeRequests().catch(() => ({ results: [] })),
       ]);
       setUsers(uData.results);
       setHospitals(hData.results);
       setAmbulances(aData.results);
+      setChangeRequests(rData.results);
     } catch (err) {
       setError('Failed to fetch administrator data panels.');
     } finally {
@@ -47,53 +49,33 @@ export default function AdminPage() {
     }
   }
 
-  // Hospital resource edits
-  function handleOpenHospitalModal(h: Hospital) {
-    setEditingHospital(h);
-    setResourceEdits(
-      h.resources?.map((r) => ({
-        resource_type: r.resource_type,
-        total: r.total,
-        available: r.available,
-      })) || []
-    );
-  }
+  // Subscribe to real-time events on the dispatcher channel
+  useWebSockets('dispatcher', null, (data) => {
+    console.log('WS Admin Event:', data);
+    fetchData();
+  });
 
-  async function saveHospitalResources() {
-    if (!editingHospital) return;
+  async function handleApproveRequest(id: number) {
     setSaving(true);
     try {
-      await apiClient.updateHospitalResources(editingHospital.id, resourceEdits);
-      setEditingHospital(null);
+      await apiClient.approveAssetChangeRequest(id);
       await fetchData();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to update resources');
+      alert(err instanceof Error ? err.message : 'Approval failed');
     } finally {
       setSaving(false);
     }
   }
 
-  // Ambulance equipment edits
-  function handleOpenAmbulanceModal(a: Ambulance) {
-    setEditingAmbulance(a);
-    setEquipmentEdits(
-      a.equipment?.map((e) => ({
-        equipment_name: e.equipment_name,
-        quantity: e.quantity,
-        available: e.available,
-      })) || []
-    );
-  }
-
-  async function saveAmbulanceEquipment() {
-    if (!editingAmbulance) return;
+  async function handleRejectRequest() {
+    if (!rejectingReq) return;
     setSaving(true);
     try {
-      await apiClient.manageAmbulanceEquipment(editingAmbulance.id, equipmentEdits);
-      setEditingAmbulance(null);
+      await apiClient.rejectAssetChangeRequest(rejectingReq.id, rejectReason);
+      setRejectingReq(null);
       await fetchData();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to update equipment');
+      alert(err instanceof Error ? err.message : 'Rejection failed');
     } finally {
       setSaving(false);
     }
@@ -101,236 +83,214 @@ export default function AdminPage() {
 
   if (loading) return <LoadingState />;
 
+  const pendingRequests = changeRequests.filter((r) => r.status === 'PENDING');
+  const pastRequests = changeRequests.filter((r) => r.status !== 'PENDING').slice(0, 10);
+
   return (
-    <div className="min-h-screen bg-slate-950 p-6">
-      <header className="mb-8 flex items-center justify-between border-b border-slate-800 pb-5">
+    <div className="min-h-screen bg-slate-950 p-6 text-slate-100 font-sans">
+      {/* Header */}
+      <header className="mb-8 flex items-center justify-between border-b border-slate-850 pb-5">
         <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-white bg-clip-text bg-gradient-to-r from-indigo-400 to-indigo-600">
-            ResQLink Administrative Console
+          <h1 className="text-3xl font-extrabold tracking-tight text-white bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400">
+            ResQLink Admin Hub
           </h1>
-          <p className="text-slate-400 mt-1">Manage system configurations, user profiles, and active emergency assets.</p>
+          <p className="text-slate-400 mt-1">Audit verify system change queries, user logs, and medical asset configs.</p>
         </div>
         <div className="flex items-center gap-4">
-          <span className="text-sm text-slate-400">Admin Mode: <strong>{user?.name}</strong></span>
+          <span className="text-sm text-slate-400">User: <strong className="text-indigo-400">{user?.name}</strong></span>
           <Button variant="secondary" onClick={logout}>Logout</Button>
         </div>
       </header>
 
       {error && <div className="mb-6"><ErrorState message={error} /></div>}
 
+      {/* Dynamic Summary HUD Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <Card title="System Users" className="glass-panel">
-          <div className="text-4xl font-black text-indigo-400">{users.length}</div>
-          <p className="text-slate-400 text-sm mt-1">Registered accounts</p>
+        <Card className="glass-panel relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-3 text-slate-800 text-6xl font-bold select-none group-hover:text-indigo-950 transition-colors">REQ</div>
+          <div className="text-sm text-slate-400 font-semibold tracking-wider uppercase">Pending Queries</div>
+          <div className="text-4xl font-black text-indigo-400 mt-2">{pendingRequests.length}</div>
+          <p className="text-slate-500 text-xs mt-1">Awaiting verification</p>
         </Card>
-        <Card title="Hospitals" className="glass-panel">
-          <div className="text-4xl font-black text-emerald-400">{hospitals.length}</div>
-          <p className="text-slate-400 text-sm mt-1">Operational trauma centers</p>
+        <Card className="glass-panel relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-3 text-slate-800 text-6xl font-bold select-none group-hover:text-emerald-950 transition-colors">HOSP</div>
+          <div className="text-sm text-slate-400 font-semibold tracking-wider uppercase">Trauma Centers</div>
+          <div className="text-4xl font-black text-emerald-400 mt-2">{hospitals.length}</div>
+          <p className="text-slate-500 text-xs mt-1">Operational in network</p>
         </Card>
-        <Card title="Ambulance Fleet" className="glass-panel">
-          <div className="text-4xl font-black text-sky-400">{ambulances.length}</div>
-          <p className="text-slate-400 text-sm mt-1">Response vehicles in system</p>
+        <Card className="glass-panel relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-3 text-slate-800 text-6xl font-bold select-none group-hover:text-sky-950 transition-colors">AMB</div>
+          <div className="text-sm text-slate-400 font-semibold tracking-wider uppercase">Fleet Size</div>
+          <div className="text-4xl font-black text-sky-400 mt-2">{ambulances.length}</div>
+          <p className="text-slate-500 text-xs mt-1">Response vehicles online</p>
         </Card>
-        <Card title="Database Status" className="glass-panel">
-          <div className="text-xl font-bold text-emerald-500 flex items-center gap-2 mt-2">
-            <span className="h-3 w-3 rounded-full bg-emerald-500 animate-pulse"></span>
-            Online & Connected
-          </div>
-          <p className="text-slate-400 text-sm mt-1">PostgreSQL master database</p>
+        <Card className="glass-panel relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-3 text-slate-800 text-6xl font-bold select-none group-hover:text-amber-955 transition-colors">USER</div>
+          <div className="text-sm text-slate-400 font-semibold tracking-wider uppercase">Active Staff</div>
+          <div className="text-4xl font-black text-amber-400 mt-2">{users.length}</div>
+          <p className="text-slate-500 text-xs mt-1">Verified user sessions</p>
         </Card>
       </div>
 
-      <div className="space-y-8">
-        {/* Users Section */}
-        <section className="glass-panel rounded-xl p-6">
-          <h2 className="text-xl font-bold text-white mb-4 border-b border-slate-800 pb-2">Authorized Users</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm text-slate-300">
-              <thead className="bg-slate-900 text-slate-400 uppercase text-xs">
-                <tr>
-                  <th className="px-4 py-3">Name</th>
-                  <th className="px-4 py-3">Email</th>
-                  <th className="px-4 py-3">Role</th>
-                  <th className="px-4 py-3">Organization</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800">
-                {users.map((u) => (
-                  <tr key={u.id} className="hover:bg-slate-900/50">
-                    <td className="px-4 py-3 font-semibold text-white">{u.name}</td>
-                    <td className="px-4 py-3 text-slate-400">{u.email}</td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
-                        u.role === 'ADMIN' ? 'bg-indigo-950 text-indigo-400' :
-                        u.role === 'DISPATCHER' ? 'bg-amber-950 text-amber-400' :
-                        u.role === 'HOSPITAL_STAFF' ? 'bg-emerald-950 text-emerald-400' :
-                        'bg-sky-950 text-sky-400'
-                      }`}>
-                        {u.role}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-slate-400">{u.organization_name || 'System Admin'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        {/* Hospital Resources Section */}
-        <section className="glass-panel rounded-xl p-6">
-          <h2 className="text-xl font-bold text-white mb-4 border-b border-slate-800 pb-2">Hospital Capacity Management</h2>
+      {/* Asset Change Verification Section */}
+      <section className="glass-panel rounded-xl p-6 mb-8 border-indigo-950/60 shadow-indigo-950/10">
+        <h2 className="text-xl font-bold text-white mb-4 border-b border-slate-850 pb-2 flex items-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-full bg-indigo-500 animate-ping"></span>
+          Asset Update Verification Requests ({pendingRequests.length})
+        </h2>
+        {pendingRequests.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {hospitals.map((h) => (
-              <div key={h.id} className="border border-slate-800 rounded-lg p-4 bg-slate-900/40 hover:border-slate-700 transition-all">
-                <div className="flex justify-between items-start mb-3">
-                  <div>
-                    <h3 className="font-bold text-white text-base">{h.name}</h3>
-                    <p className="text-xs text-slate-400">ED Status: <strong>{h.emergency_department_status}</strong></p>
+            {pendingRequests.map((req) => (
+              <div key={req.id} className="border border-slate-800 rounded-lg p-4 bg-slate-900/30 hover:border-slate-700 transition-all flex flex-col justify-between">
+                <div>
+                  <div className="flex justify-between items-start mb-2">
+                    <span className="text-xs font-bold text-indigo-400 tracking-wider uppercase">{req.asset_type} UPDATE REQUEST</span>
+                    <Badge variant="warning">PENDING</Badge>
                   </div>
-                  <Button variant="secondary" size="small" onClick={() => handleOpenHospitalModal(h)}>
-                    Edit Resources
-                  </Button>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {h.resources?.map((r) => (
-                    <div key={r.id} className="bg-slate-950/60 p-2 rounded text-center border border-slate-800">
-                      <div className="text-xs text-slate-400 truncate">{r.resource_type}</div>
-                      <div className="text-sm font-bold text-white mt-1">
-                        {r.available} / {r.total}
+                  <h3 className="font-bold text-white text-base mb-1">
+                    {req.asset_type === 'HOSPITAL' ? req.hospital_name : `Ambulance ${req.ambulance_number}`}
+                  </h3>
+                  <div className="text-xs text-slate-400 mb-4">Submitted by {req.created_by_name} at {new Date(req.created_at).toLocaleTimeString()}</div>
+
+                  <div className="bg-slate-950/80 p-3 rounded-lg border border-slate-850 space-y-2 mb-4">
+                    <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Proposed Changes:</div>
+                    {req.requested_changes.map((item: any, idx: number) => (
+                      <div key={idx} className="flex justify-between text-xs border-b border-slate-900 pb-1.5 last:border-0 last:pb-0">
+                        {req.asset_type === 'HOSPITAL' ? (
+                          <>
+                            <span className="text-slate-300 uppercase">{item.resource_type.replace('_', ' ')}</span>
+                            <span className="text-indigo-300">Total: {item.total} • Available: {item.available}</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-slate-300 capitalize">{item.equipment_name}</span>
+                            <span className="text-sky-300">Qty: {item.quantity} • {item.available ? 'Available' : 'Unavailable'}</span>
+                          </>
+                        )}
                       </div>
-                    </div>
-                  )) || <div className="text-xs text-slate-500 col-span-3">No resources initialized</div>}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* Ambulance Equipment Section */}
-        <section className="glass-panel rounded-xl p-6">
-          <h2 className="text-xl font-bold text-white mb-4 border-b border-slate-800 pb-2">Ambulance Fleet Status & Equipment</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {ambulances.map((a) => (
-              <div key={a.id} className="border border-slate-800 rounded-lg p-4 bg-slate-900/40 hover:border-slate-700 transition-all">
-                <div className="flex justify-between items-start mb-3">
-                  <div>
-                    <h3 className="font-bold text-white text-base">Ambulance {a.registration_number}</h3>
-                    <div className="flex gap-2 items-center mt-1">
-                      <Badge variant={a.status === 'AVAILABLE' ? 'success' : 'warning'}>{a.status}</Badge>
-                      <span className="text-xs text-slate-400">{a.capability_level}</span>
-                    </div>
+                    ))}
                   </div>
-                  <Button variant="secondary" size="small" onClick={() => handleOpenAmbulanceModal(a)}>
-                    Edit Equipment
+                </div>
+
+                <div className="flex gap-2 justify-end">
+                  <Button variant="secondary" size="small" onClick={() => setRejectingReq(req)} disabled={saving}>
+                    Reject
+                  </Button>
+                  <Button size="small" onClick={() => handleApproveRequest(req.id)} disabled={saving}>
+                    Approve & Verify
                   </Button>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {a.equipment?.map((e) => (
-                    <span key={e.id} className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs border ${
-                      e.available && e.quantity > 0 ? 'bg-slate-950/80 border-slate-700 text-slate-300' : 'bg-red-950/20 border-red-900/40 text-red-400'
-                    }`}>
-                      {e.equipment_name} ({e.quantity})
-                    </span>
-                  )) || <div className="text-xs text-slate-500">No equipment configured</div>}
-                </div>
               </div>
             ))}
           </div>
-        </section>
+        ) : (
+          <div className="text-slate-500 py-6 text-center text-sm">
+            All asset change logs verified. Ready and on standby.
+          </div>
+        )}
+      </section>
+
+      {/* Main grids */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Hospital Fleet status */}
+        <div className="lg:col-span-2 space-y-8">
+          <section className="glass-panel rounded-xl p-6">
+            <h2 className="text-xl font-bold text-white mb-4 border-b border-slate-850 pb-2">Hospital Network Overview</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {hospitals.map((h) => (
+                <div key={h.id} className="border border-slate-850 rounded-lg p-4 bg-slate-900/20 hover:border-slate-800 transition-all">
+                  <div className="flex justify-between items-start mb-2">
+                    <h3 className="font-bold text-white text-sm">{h.name}</h3>
+                    <Badge variant={h.emergency_department_status === 'OPEN' ? 'success' : 'danger'}>
+                      {h.emergency_department_status}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-center text-[10px] text-slate-400 mt-2">
+                    {h.resources?.map((r) => (
+                      <div key={r.id} className="bg-slate-950/40 p-1 border border-slate-900 rounded">
+                        <div className="truncate text-slate-500">{r.resource_type}</div>
+                        <div className="font-bold text-slate-200 mt-0.5">{r.available} / {r.total}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="glass-panel rounded-xl p-6">
+            <h2 className="text-xl font-bold text-white mb-4 border-b border-slate-850 pb-2">Ambulance Fleet Status</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {ambulances.map((a) => (
+                <div key={a.id} className="border border-slate-850 rounded-lg p-4 bg-slate-900/20 hover:border-slate-800 transition-all">
+                  <div className="flex justify-between items-start mb-2">
+                    <h3 className="font-bold text-white text-sm">Ambulance {a.registration_number}</h3>
+                    <Badge variant={a.status === 'AVAILABLE' ? 'success' : 'warning'}>{a.status}</Badge>
+                  </div>
+                  <div className="text-[10px] text-slate-400">Capability: <strong className="text-sky-400">{a.capability_level}</strong></div>
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {a.equipment?.map((e) => (
+                      <span key={e.id} className={`text-[9px] px-1.5 py-0.5 rounded border ${
+                        e.available ? 'bg-slate-950/60 border-slate-900 text-slate-400' : 'bg-red-950/20 border-red-900/40 text-red-400'
+                      }`}>
+                        {e.equipment_name} ({e.quantity})
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+
+        {/* Change log auditing sidebar */}
+        <div className="space-y-6">
+          <section className="glass-panel rounded-xl p-6">
+            <h2 className="text-xl font-bold text-white mb-4 border-b border-slate-850 pb-2">Past Verification Logs</h2>
+            <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+              {pastRequests.map((req) => (
+                <div key={req.id} className="border-b border-slate-900 pb-2 text-xs">
+                  <div className="flex justify-between font-semibold">
+                    <span className="text-slate-300">
+                      {req.asset_type === 'HOSPITAL' ? req.hospital_name : `Ambulance ${req.ambulance_number}`}
+                    </span>
+                    <span className={req.status === 'APPROVED' ? 'text-emerald-500' : 'text-red-500'}>
+                      {req.status}
+                    </span>
+                  </div>
+                  <p className="text-slate-500 text-[10px] mt-0.5">Reviewed by {req.reviewed_by_name || 'System'}</p>
+                  {req.rejection_reason && (
+                    <p className="text-red-400/80 bg-red-955/10 p-1.5 rounded mt-1 border border-red-950/40 text-[10px]">
+                      Reason: {req.rejection_reason}
+                    </p>
+                  )}
+                </div>
+              ))}
+              {pastRequests.length === 0 && (
+                <div className="text-slate-600 text-center py-6">No historic verification runs.</div>
+              )}
+            </div>
+          </section>
+        </div>
       </div>
 
-      {/* Hospital Resources Edit Modal */}
-      {editingHospital && (
-        <Modal title={`Modify Resources: ${editingHospital.name}`} onClose={() => setEditingHospital(null)}>
-          <div className="space-y-4">
-            {resourceEdits.map((res, index) => (
-              <div key={res.resource_type} className="border border-slate-800 p-3 rounded bg-slate-900/50">
-                <div className="font-bold text-slate-300 text-sm mb-2 uppercase">{res.resource_type.replace('_', ' ')}</div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs text-slate-400 block mb-1">Total</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={res.total}
-                      onChange={(e) => {
-                        const newEdits = [...resourceEdits];
-                        newEdits[index].total = parseInt(e.target.value) || 0;
-                        setResourceEdits(newEdits);
-                      }}
-                      className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1 text-white text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-400 block mb-1">Available</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={res.available}
-                      onChange={(e) => {
-                        const newEdits = [...resourceEdits];
-                        newEdits[index].available = parseInt(e.target.value) || 0;
-                        setResourceEdits(newEdits);
-                      }}
-                      className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1 text-white text-sm"
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
-            <div className="flex justify-end gap-3 mt-5">
-              <Button variant="secondary" onClick={() => setEditingHospital(null)} disabled={saving}>Cancel</Button>
-              <Button onClick={saveHospitalResources} disabled={saving}>
-                {saving ? 'Saving...' : 'Save Resources'}
-              </Button>
+      {/* Reject Request Reason Modal */}
+      {rejectingReq && (
+        <Modal title="Enter Rejection Reason" onClose={() => setRejectingReq(null)}>
+          <div className="space-y-4 text-slate-300 text-sm">
+            <p>Specify the rejection reason for this change request. The hospital/ambulance crew will receive this logs notification.</p>
+            <div>
+              <label className="block text-slate-400 text-xs mb-1">Rejection Reason</label>
+              <textarea
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded p-2.5 text-white text-sm focus:border-indigo-500 focus:outline-none h-20"
+              />
             </div>
-          </div>
-        </Modal>
-      )}
-
-      {/* Ambulance Equipment Edit Modal */}
-      {editingAmbulance && (
-        <Modal title={`Modify Equipment: Ambulance ${editingAmbulance.registration_number}`} onClose={() => setEditingAmbulance(null)}>
-          <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
-            {equipmentEdits.map((eq, index) => (
-              <div key={eq.equipment_name} className="border border-slate-800 p-3 rounded bg-slate-900/50 flex items-center justify-between gap-4">
-                <div className="font-bold text-slate-300 text-sm capitalize">{eq.equipment_name}</div>
-                <div className="flex items-center gap-4">
-                  <div className="w-24">
-                    <label className="text-[10px] text-slate-400 block mb-0.5">Quantity</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={eq.quantity}
-                      onChange={(e) => {
-                        const newEdits = [...equipmentEdits];
-                        newEdits[index].quantity = parseInt(e.target.value) || 0;
-                        setEquipmentEdits(newEdits);
-                      }}
-                      className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1 text-white text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-slate-400 block mb-0.5">Available</label>
-                    <input
-                      type="checkbox"
-                      checked={eq.available}
-                      onChange={(e) => {
-                        const newEdits = [...equipmentEdits];
-                        newEdits[index].available = e.target.checked;
-                        setEquipmentEdits(newEdits);
-                      }}
-                      className="h-5 w-5 bg-slate-950 border border-slate-800 rounded accent-indigo-500"
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
             <div className="flex justify-end gap-3 mt-5">
-              <Button variant="secondary" onClick={() => setEditingAmbulance(null)} disabled={saving}>Cancel</Button>
-              <Button onClick={saveAmbulanceEquipment} disabled={saving}>
-                {saving ? 'Saving...' : 'Save Equipment'}
+              <Button variant="secondary" onClick={() => setRejectingReq(null)}>Cancel</Button>
+              <Button onClick={handleRejectRequest} disabled={saving}>
+                Confirm Rejection
               </Button>
             </div>
           </div>

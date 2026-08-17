@@ -76,6 +76,8 @@ export default function DispatcherPage() {
   const [optimizingAmbulance, setOptimizingAmbulance] = useState(false);
   const [optimizingHospital, setOptimizingHospital] = useState(false);
   const [error, setError] = useState('');
+  const [ingesting, setIngesting] = useState(false);
+  const [recalculating, setRecalculating] = useState(false);
 
   // Modals / forms
   const [showVerifyModal, setShowVerifyModal] = useState(false);
@@ -95,7 +97,6 @@ export default function DispatcherPage() {
       const updated = emergencies.find((e) => e.id === selectedEmergency.id);
       if (updated) {
         setSelectedEmergency(updated);
-        // Refresh alert / routing references
         fetchAlertAndRoute(updated);
       }
     }
@@ -121,7 +122,6 @@ export default function DispatcherPage() {
 
   async function fetchAlertAndRoute(emergency: Emergency) {
     try {
-      // Get active route
       const rData = await apiClient.optimizeRoute(emergency.id, undefined, 'intelligent');
       setRoute(rData);
     } catch {
@@ -220,26 +220,100 @@ export default function DispatcherPage() {
     }
   }
 
+  // Create randomised Mock Emergency (Additional Feature)
+  async function simulateEmergencyIngestion() {
+    setIngesting(true);
+    const types = ['CARDIAC', 'TRAUMA', 'RESPIRATORY', 'STROKE', 'SEIZURE'];
+    const randomType = types[Math.floor(Math.random() * types.length)];
+    const randomAge = Math.floor(Math.random() * 60) + 18;
+    const randomNode = SEEDED_NODES[Math.floor(Math.random() * SEEDED_NODES.length)];
+    
+    // Seed slight offset to the node coordinates
+    const lat = (randomNode.lat + (Math.random() - 0.5) * 0.005).toFixed(6);
+    const lon = (randomNode.lon + (Math.random() - 0.5) * 0.005).toFixed(6);
+
+    const data = {
+      latitude: lat,
+      longitude: lon,
+      age: randomAge,
+      emergency_type: randomType,
+      reported_conditions: ['difficulty_breathing', 'altered_consciousness'],
+      vital_data: { heart_rate: 105, spo2: 93, respiratory_rate: 22 }
+    };
+
+    try {
+      const e = await apiClient.createEmergency(data);
+      await fetchDispatcherData();
+      setSelectedEmergency(e);
+    } catch (err) {
+      alert('Mock ingestion failed');
+    } finally {
+      setIngesting(false);
+    }
+  }
+
+  // Recalculate Route manually (Additional Feature)
+  async function triggerRouteRecalculation() {
+    if (!selectedEmergency) return;
+    setRecalculating(true);
+    try {
+      const res = await apiClient.recalculateRoute(selectedEmergency.id, 'intelligent');
+      if (res.rerouted) {
+        alert(`Rerouted successfully! Old ETA: ${res.old_eta_min} min, New ETA: ${res.new_eta_min} min`);
+      } else {
+        alert('Route remains optimal. No traffic changes detected.');
+      }
+      await fetchDispatcherData();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Recalculation error');
+    } finally {
+      setRecalculating(false);
+    }
+  }
+
   if (loading) return <LoadingState />;
 
-  // Find active alert for selected case
-  const activeAlert = selectedEmergency?.selected_hospital
-    ? hospitals.find((h) => h.id === selectedEmergency.selected_hospital)
-    : null;
+  // HUD stats variables
+  const unverifiedCount = emergencies.filter((e) => !e.verified_priority).length;
+  const dispatchingCount = emergencies.filter((e) => ['VERIFIED', 'AMBULANCE_ASSIGNMENT', 'HOSPITAL_PENDING'].includes(e.status)).length;
+  const responseTransitCount = emergencies.filter((e) => ['DISPATCHED', 'EN_ROUTE'].includes(e.status)).length;
+  const completedCount = emergencies.filter((e) => e.status === 'COMPLETED').length;
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col text-slate-200">
-      {/* Header */}
-      <header className="px-6 py-4 flex items-center justify-between border-b border-slate-900 bg-slate-950/80 backdrop-blur">
+    <div className="min-h-screen bg-slate-950 flex flex-col text-slate-200 font-sans">
+      {/* Top HUD Stats & Header Banner */}
+      <header className="px-6 py-4 flex flex-col md:flex-row md:items-center justify-between border-b border-slate-900 bg-slate-950/80 backdrop-blur gap-4">
         <div>
-          <h1 className="text-xl font-bold text-white flex items-center gap-2">
-            <span className="h-2 w-2 bg-red-500 rounded-full animate-ping"></span>
-            ResQLink Dispatch Control
+          <h1 className="text-2xl font-black text-white flex items-center gap-2 tracking-wide bg-clip-text bg-gradient-to-r from-indigo-400 to-indigo-600">
+            ResQLink Dispatch HUD
           </h1>
-          <p className="text-xs text-slate-400">Emergency & coordination simulation console</p>
+          <p className="text-xs text-slate-400 mt-0.5">Simulated Road Network Triage & Real-Time Tracking</p>
         </div>
-        <div className="flex items-center gap-4">
-          <span className="text-xs text-slate-400">Dispatcher: <strong>{user?.name}</strong></span>
+
+        {/* HUD Statistics Meters */}
+        <div className="flex gap-4 text-center">
+          <div className="bg-slate-900/60 border border-slate-850 px-3 py-1.5 rounded-lg min-w-20">
+            <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Unverified</div>
+            <div className="text-sm font-black text-amber-400 mt-0.5">{unverifiedCount}</div>
+          </div>
+          <div className="bg-slate-900/60 border border-slate-850 px-3 py-1.5 rounded-lg min-w-20">
+            <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Triage</div>
+            <div className="text-sm font-black text-indigo-400 mt-0.5">{dispatchingCount}</div>
+          </div>
+          <div className="bg-slate-900/60 border border-slate-850 px-3 py-1.5 rounded-lg min-w-20">
+            <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">In Transit</div>
+            <div className="text-sm font-black text-emerald-400 mt-0.5">{responseTransitCount}</div>
+          </div>
+          <div className="bg-slate-900/60 border border-slate-850 px-3 py-1.5 rounded-lg min-w-20">
+            <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Resolved</div>
+            <div className="text-sm font-black text-slate-400 mt-0.5">{completedCount}</div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <Button onClick={simulateEmergencyIngestion} disabled={ingesting} size="small" variant="secondary" className="border-indigo-900/40 text-indigo-300">
+            {ingesting ? 'Ingesting...' : 'Ingest Mock Case'}
+          </Button>
           <Button variant="secondary" size="small" onClick={logout}>Logout</Button>
         </div>
       </header>
@@ -249,7 +323,7 @@ export default function DispatcherPage() {
       <div className="flex-1 flex overflow-hidden">
         {/* Left pane - Active Emergencies Feed */}
         <aside className="w-80 border-r border-slate-900 overflow-y-auto flex flex-col bg-slate-950">
-          <div className="p-4 border-b border-slate-900 font-bold text-sm text-slate-400 uppercase tracking-wider">
+          <div className="p-4 border-b border-slate-900 font-bold text-xs text-slate-500 uppercase tracking-wider">
             Incident Ingestion Feed ({emergencies.length})
           </div>
           <div className="divide-y divide-slate-900">
@@ -277,11 +351,12 @@ export default function DispatcherPage() {
                   </div>
                   <div className="text-xs flex justify-between text-slate-400">
                     <span>{e.emergency_type}</span>
-                    <span className="uppercase text-[10px] text-indigo-400">{e.status}</span>
+                    <span className="uppercase text-[10px] text-indigo-400 font-bold">{e.status}</span>
                   </div>
                   {hasAlert && (
-                    <div className="text-[10px] text-slate-500 mt-2 truncate">
-                      Hospital alert: Selected
+                    <div className="text-[10px] text-slate-500 mt-2 truncate flex items-center gap-1.5">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                      Trauma Alert Initiated
                     </div>
                   )}
                 </div>
@@ -298,8 +373,8 @@ export default function DispatcherPage() {
           {selectedEmergency ? (
             <div className="space-y-6">
               {/* Map Card */}
-              <Card title="Operational Road Network Map" className="glass-panel map-grid relative overflow-hidden">
-                <svg className="w-full h-80 bg-slate-950/45 rounded-lg border border-slate-900" viewBox="0 0 500 350">
+              <Card title="Live Network Mapping & Dijkstra Routes" className="glass-panel map-grid relative overflow-hidden">
+                <svg className="w-full h-80 bg-slate-950/65 rounded-lg border border-slate-900" viewBox="0 0 500 350">
                   {/* Road Edges (lines) */}
                   {SEEDED_EDGES.map((edge, index) => {
                     const n1 = SEEDED_NODES.find((n) => n.name === edge.src);
@@ -402,7 +477,7 @@ export default function DispatcherPage() {
 
               {/* Route Path details */}
               {route && (
-                <Card title="Routing Specifications" className="glass-panel">
+                <Card title="Optimal Transit Route Specifications" className="glass-panel">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm mb-4">
                     <div>
                       <span className="text-slate-400 text-xs">Total Path Distance</span>
@@ -412,9 +487,14 @@ export default function DispatcherPage() {
                       <span className="text-slate-400 text-xs">Simulated Travel Time</span>
                       <div className="font-mono text-base font-bold text-indigo-400">{route.estimated_time} minutes</div>
                     </div>
-                    <div>
-                      <span className="text-slate-400 text-xs">Active Route Strategy</span>
-                      <div className="font-semibold text-sky-400 uppercase">{route.route?.strategy || 'baseline'}</div>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-slate-400 text-xs block">Active Routing Strategy</span>
+                        <div className="font-semibold text-sky-400 uppercase">{route.route?.strategy || 'baseline'}</div>
+                      </div>
+                      <Button onClick={triggerRouteRecalculation} disabled={recalculating} size="small" className="h-8 !py-1">
+                        {recalculating ? 'Rerouting...' : 'Recalculate'}
+                      </Button>
                     </div>
                   </div>
                   <div className="text-xs text-slate-400 border-t border-slate-850 pt-3">
@@ -448,7 +528,7 @@ export default function DispatcherPage() {
                   <span className="font-bold text-indigo-400 uppercase">{selectedEmergency.status}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Verified Priority:</span>
+                  <span className="text-slate-400">Verified Triage:</span>
                   <span className="font-bold text-orange-400">{selectedEmergency.verified_priority || 'UNVERIFIED'}</span>
                 </div>
                 {!selectedEmergency.verified_priority && (
@@ -467,7 +547,7 @@ export default function DispatcherPage() {
                   <select
                     value={ambulanceStrategy}
                     onChange={(e) => setAmbulanceStrategy(e.target.value as any)}
-                    className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs text-slate-300"
+                    className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs text-slate-300 focus:outline-none"
                   >
                     <option value="intelligent">Intelligent Cost</option>
                     <option value="baseline">Baseline Nearest</option>
@@ -504,7 +584,7 @@ export default function DispatcherPage() {
                   <select
                     value={hospitalStrategy}
                     onChange={(e) => setHospitalStrategy(e.target.value as any)}
-                    className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs text-slate-300"
+                    className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs text-slate-300 focus:outline-none"
                   >
                     <option value="intelligent">Intelligent Resource</option>
                     <option value="baseline">Baseline Nearest</option>

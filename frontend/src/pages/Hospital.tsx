@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { useWebSockets } from '../auth/useWebSockets';
-import { apiClient, type Hospital, type HospitalAlert, type Handover } from '../api/client';
+import { apiClient, type Hospital, type HospitalAlert, type Handover, type AssetChangeRequest } from '../api/client';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
 import { Badge } from '../components/Badge';
@@ -14,9 +14,15 @@ export default function HospitalPage() {
   const [hospital, setHospital] = useState<Hospital | null>(null);
   const [alerts, setAlerts] = useState<HospitalAlert[]>([]);
   const [handovers, setHandovers] = useState<Handover[]>([]);
+  const [changeRequests, setChangeRequests] = useState<AssetChangeRequest[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // Request Modal State
+  const [showRequestModal, setShowRequestModal] = useState(false);
+  const [resourceEdits, setResourceEdits] = useState<any[]>([]);
 
   // Not Ready Modal state
   const [rejectingAlert, setRejectingAlert] = useState<HospitalAlert | null>(null);
@@ -25,7 +31,7 @@ export default function HospitalPage() {
 
   useEffect(() => {
     fetchHospitalData();
-    const interval = setInterval(fetchHospitalData, 4000);
+    const interval = setInterval(fetchHospitalData, 4500);
     return () => clearInterval(interval);
   }, []);
 
@@ -42,26 +48,26 @@ export default function HospitalPage() {
       }
       setHospital(myHospital);
 
-      // Fetch alerts
-      const aResponse = await apiClient.getHospitalAlerts();
-      const myAlerts = aResponse.results.filter(
-        (a) => a.hospital === myHospital.id
-      );
+      const [aResponse, handData, rData] = await Promise.all([
+        apiClient.getHospitalAlerts(),
+        apiClient.getHandovers().catch(() => ({ results: [] })),
+        apiClient.getAssetChangeRequests().catch(() => ({ results: [] })),
+      ]);
+
+      const myAlerts = aResponse.results.filter((a) => a.hospital === myHospital.id);
       setAlerts(myAlerts);
 
-      // Fetch active handovers
-      try {
-        const handData = await apiClient.getHandovers();
-        const myHandovers = handData.results.filter(
-          (h) => h.hospital === myHospital.id && h.status !== 'COMPLETED'
-        );
-        setHandovers(myHandovers);
-      } catch {
-        setHandovers([]);
-      }
+      const myHandovers = handData.results.filter(
+        (h) => h.hospital === myHospital.id && h.status !== 'COMPLETED'
+      );
+      setHandovers(myHandovers);
+
+      const myRequests = rData.results.filter(
+        (r) => r.asset_type === 'HOSPITAL' && r.hospital === myHospital.id
+      );
+      setChangeRequests(myRequests);
       setError('');
     } catch (err) {
-      console.error(err);
       setError('Connection failure retrieving hospital dashboards.');
     } finally {
       setLoading(false);
@@ -124,49 +130,84 @@ export default function HospitalPage() {
     }
   }
 
+  // Open resource update request form
+  function handleOpenRequestModal() {
+    if (!hospital) return;
+    setResourceEdits(
+      hospital.resources?.map((r) => ({
+        resource_type: r.resource_type,
+        total: r.total,
+        available: r.available,
+      })) || []
+    );
+    setShowRequestModal(true);
+  }
+
+  // Post pending change request
+  async function submitResourceChangeRequest() {
+    if (!hospital) return;
+    setSaving(true);
+    try {
+      await apiClient.createAssetChangeRequest({
+        asset_type: 'HOSPITAL',
+        hospital: hospital.id,
+        requested_changes: resourceEdits,
+      });
+      setShowRequestModal(false);
+      await fetchHospitalData();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to submit request');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (loading) return <LoadingState />;
   if (error) return <div className="p-6"><ErrorState message={error} /></div>;
   if (!hospital) return <div className="p-6 text-slate-400">Loading hospital data...</div>;
 
-  // Active alerts (SENT, ACKNOWLEDGED, PREPARING)
-  const activeAlerts = alerts.filter(
-    (a) => ['SENT', 'ACKNOWLEDGED', 'PREPARING'].includes(a.status)
-  );
-
-  // Historic alerts (READY, NOT_READY, RESPONSE_TIMEOUT, CANCELLED)
-  const historicAlerts = alerts.filter(
-    (a) => !['SENT', 'ACKNOWLEDGED', 'PREPARING'].includes(a.status)
-  ).slice(0, 10);
+  const activeAlerts = alerts.filter((a) => ['SENT', 'ACKNOWLEDGED', 'PREPARING'].includes(a.status));
+  const historicAlerts = alerts.filter((a) => !['SENT', 'ACKNOWLEDGED', 'PREPARING'].includes(a.status)).slice(0, 5);
 
   return (
     <div className="min-h-screen bg-slate-950 p-6 text-slate-200">
+      {/* Header */}
       <header className="mb-6 flex items-center justify-between border-b border-slate-800 pb-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">{hospital.name} Emergency Console</h1>
-          <p className="text-xs text-slate-400">Organization Scoped Hospital Panel</p>
+          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+            <span className="h-3 w-3 bg-emerald-500 rounded-full animate-pulse"></span>
+            {hospital.name} Trauma Center
+          </h1>
+          <p className="text-xs text-slate-400">Hospital Scoped Emergency Response Console</p>
         </div>
-        <Button variant="secondary" size="small" onClick={logout}>Logout</Button>
+        <div className="flex gap-3">
+          <Button variant="secondary" size="small" onClick={handleOpenRequestModal}>
+            Request Capacity Update
+          </Button>
+          <Button variant="secondary" size="small" onClick={logout}>Logout</Button>
+        </div>
       </header>
 
+      {/* Main Layout Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Alerts and Incoming emergency */}
+        {/* Left Columns - Live Alerts & Handover */}
         <div className="lg:col-span-2 space-y-6">
           <h2 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
             <span className="h-2 w-2 bg-red-500 rounded-full animate-ping"></span>
-            Active Emergency Alerts ({activeAlerts.length})
+            Live Incident Alarms ({activeAlerts.length})
           </h2>
 
           {activeAlerts.length > 0 ? (
             activeAlerts.map((alert) => (
               <Card
                 key={alert.id}
-                title={`Incoming Callout - ETA ${alert.eta} mins`}
+                title={`Incoming Dispatch Case — ETA ${alert.eta} mins`}
                 className="glass-panel border-indigo-950"
               >
                 <div className="space-y-4">
                   <div className="flex justify-between items-center border-b border-slate-800 pb-2">
                     <div>
-                      <span className="text-slate-400 text-xs block">Emergency Priority</span>
+                      <span className="text-slate-400 text-xs block">Triage Priority</span>
                       <Badge variant={alert.priority === 'CRITICAL' || alert.priority === 'HIGH' ? 'danger' : 'warning'}>
                         {alert.priority}
                       </Badge>
@@ -179,7 +220,7 @@ export default function HospitalPage() {
 
                   {/* Readiness Checklist */}
                   <div>
-                    <h3 className="text-sm font-semibold text-white mb-2">Hospital Readiness Checklist</h3>
+                    <h3 className="text-sm font-semibold text-white mb-2">Trauma Readiness Checklist</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                       {alert.readiness_checklist?.map((item: any) => {
                         const isReady = item.status === 'READY';
@@ -195,7 +236,7 @@ export default function HospitalPage() {
                     </div>
                   </div>
 
-                  {/* Actions */}
+                  {/* Process Buttons */}
                   <div className="flex flex-wrap gap-3 border-t border-slate-800 pt-3 justify-end">
                     {alert.status === 'SENT' && (
                       <Button onClick={() => handleAcknowledge(alert.id)}>
@@ -223,12 +264,12 @@ export default function HospitalPage() {
             ))
           ) : (
             <Card className="glass-panel py-8 text-center text-slate-500">
-              No active alerts received.
+              No live incident alerts. Standing by for dispatch incoming notifications.
             </Card>
           )}
 
           {/* Handovers Section */}
-          <h2 className="text-lg font-bold text-white mt-8 mb-2">Patient Digital Handovers</h2>
+          <h2 className="text-lg font-bold text-white mt-8 mb-2">Live Handover Auditing</h2>
           {handovers.length > 0 ? (
             handovers.map((hand) => (
               <Card key={hand.id} title={`Active Handover Transfer`} className="glass-panel border-emerald-950">
@@ -263,12 +304,13 @@ export default function HospitalPage() {
           )}
         </div>
 
-        {/* Resources Summary Sidebar */}
-        <div className="lg:col-span-1 space-y-6">
-          <Card title="ER Status Summary" className="glass-panel">
+        {/* Right Sidebar - Resources, Requests History, Alarm logs */}
+        <div className="space-y-6">
+          {/* Resources card */}
+          <Card title="Emergency Capacity" className="glass-panel">
             <div className="space-y-4">
               <div>
-                <div className="text-slate-400 text-xs mb-1">ER Department Load:</div>
+                <div className="text-slate-400 text-xs mb-1">Department Load Status:</div>
                 <Badge variant={
                   hospital.emergency_department_status === 'OPEN' ? 'success' :
                   hospital.emergency_department_status === 'OVERCROWDED' ? 'warning' : 'danger'
@@ -277,11 +319,11 @@ export default function HospitalPage() {
                 </Badge>
               </div>
               <div className="border-t border-slate-800 pt-3">
-                <div className="text-sm font-semibold text-white mb-2">Hospital Resource Availability:</div>
+                <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Current Capacity levels:</div>
                 <div className="space-y-2">
                   {hospital.resources?.map((r) => (
-                    <div key={r.id} className="flex justify-between items-center text-sm bg-slate-900/40 p-2 rounded">
-                      <span className="text-slate-400 uppercase text-xs">{r.resource_type.replace('_', ' ')}</span>
+                    <div key={r.id} className="flex justify-between items-center text-xs bg-slate-950/40 p-2 border border-slate-900 rounded">
+                      <span className="text-slate-400 uppercase font-semibold">{r.resource_type.replace('_', ' ')}</span>
                       <strong className="text-white">{r.available} / {r.total}</strong>
                     </div>
                   ))}
@@ -290,30 +332,107 @@ export default function HospitalPage() {
             </div>
           </Card>
 
-          {/* History */}
-          <Card title="Alert History logs" className="glass-panel">
-            <div className="space-y-3 text-xs max-h-72 overflow-y-auto pr-1">
-              {historicAlerts.map((a) => (
-                <div key={a.id} className="flex justify-between border-b border-slate-900 pb-2">
-                  <div>
-                    <div className="text-slate-300 font-semibold">Alert #{a.id} (Priority {a.priority})</div>
-                    <div className="text-slate-500">Created: {new Date(a.created_at).toLocaleTimeString()}</div>
+          {/* Pending / Completed change requests */}
+          <Card title="Asset Change Queries" className="glass-panel">
+            <div className="space-y-3 max-h-60 overflow-y-auto pr-1 text-xs">
+              {changeRequests.map((req) => (
+                <div key={req.id} className="border-b border-slate-900 pb-2">
+                  <div className="flex justify-between">
+                    <span className="font-semibold text-white">Query #{req.id}</span>
+                    <span className={`font-bold ${
+                      req.status === 'APPROVED' ? 'text-emerald-400' :
+                      req.status === 'REJECTED' ? 'text-red-400' : 'text-amber-400 animate-pulse'
+                    }`}>
+                      {req.status}
+                    </span>
                   </div>
-                  <span className={`font-bold capitalize ${
-                    a.status === 'READY' ? 'text-emerald-500' :
-                    a.status === 'NOT_READY' ? 'text-red-500' : 'text-slate-500'
-                  }`}>
-                    {a.status.replace('_', ' ')}
-                  </span>
+                  <div className="text-[10px] text-slate-500 mt-1">Submitted at {new Date(req.created_at).toLocaleTimeString()}</div>
+                  {req.rejection_reason && (
+                    <div className="text-[10px] text-red-400/80 bg-red-955/15 p-1 rounded mt-1 border border-red-950/30">
+                      Reason: {req.rejection_reason}
+                    </div>
+                  )}
+                </div>
+              ))}
+              {changeRequests.length === 0 && (
+                <div className="text-slate-600 text-center py-4">No capacity update queries submitted.</div>
+              )}
+            </div>
+          </Card>
+
+          {/* Alarm History */}
+          <Card title="Completed Runs" className="glass-panel">
+            <div className="space-y-2 text-xs max-h-48 overflow-y-auto pr-1">
+              {historicAlerts.map((a) => (
+                <div key={a.id} className="flex justify-between border-b border-slate-900 pb-2 text-[10px]">
+                  <div>
+                    <div className="text-slate-300 font-semibold">Incident Alert #{a.id}</div>
+                    <div className="text-slate-500">Priority {a.priority}</div>
+                  </div>
+                  <span className="text-slate-400 capitalize">{a.status}</span>
                 </div>
               ))}
               {historicAlerts.length === 0 && (
-                <div className="text-slate-500 text-center py-4">No historic records.</div>
+                <div className="text-slate-600 text-center py-4">No historic records.</div>
               )}
             </div>
           </Card>
         </div>
       </div>
+
+      {/* Resource update request modal */}
+      {showRequestModal && (
+        <Modal title="Request Capacity Modification" onClose={() => setShowRequestModal(false)}>
+          <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+            <p className="text-slate-400 text-xs">
+              Proposed resource updates will be routed to the system administrator for audit verification. No direct database updates are performed.
+            </p>
+            {resourceEdits.map((res, index) => (
+              <div key={res.resource_type} className="border border-slate-800 p-3 rounded bg-slate-950/50">
+                <div className="font-bold text-slate-300 text-xs mb-2 uppercase tracking-wide">
+                  {res.resource_type.replace('_', ' ')}
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[10px] text-slate-500 block mb-1">Total Capacity</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={res.total}
+                      onChange={(e) => {
+                        const newEdits = [...resourceEdits];
+                        newEdits[index].total = parseInt(e.target.value) || 0;
+                        setResourceEdits(newEdits);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-white text-xs focus:border-indigo-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-500 block mb-1">Available Count</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={res.available}
+                      onChange={(e) => {
+                        const newEdits = [...resourceEdits];
+                        newEdits[index].available = parseInt(e.target.value) || 0;
+                        setResourceEdits(newEdits);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-white text-xs focus:border-indigo-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+            <div className="flex justify-end gap-3 mt-5 pt-3 border-t border-slate-800">
+              <Button variant="secondary" onClick={() => setShowRequestModal(false)} disabled={saving}>Cancel</Button>
+              <Button onClick={submitResourceChangeRequest} disabled={saving}>
+                {saving ? 'Submitting...' : 'Submit Request'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* Reject Alert Reason Modal */}
       {rejectingAlert && (

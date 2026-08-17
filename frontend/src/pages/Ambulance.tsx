@@ -1,10 +1,11 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { useWebSockets } from '../auth/useWebSockets';
-import { apiClient, type Ambulance, type Emergency, type Handover, type OptimizedRoute } from '../api/client';
+import { apiClient, type Ambulance, type Emergency, type Handover, type OptimizedRoute, type AssetChangeRequest } from '../api/client';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
 import { Badge } from '../components/Badge';
+import { Modal } from '../components/Modal';
 import { LoadingState } from '../components/LoadingState';
 import { ErrorState } from '../components/ErrorState';
 
@@ -14,25 +15,29 @@ export default function AmbulancePage() {
   const [emergency, setEmergency] = useState<Emergency | null>(null);
   const [route, setRoute] = useState<OptimizedRoute | null>(null);
   const [handover, setHandover] = useState<Handover | null>(null);
+  const [changeRequests, setChangeRequests] = useState<AssetChangeRequest[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
   const [simulating, setSimulating] = useState(false);
   const [simStep, setSimStep] = useState(0);
   const [notes, setNotes] = useState('');
   const [submittingHandover, setSubmittingHandover] = useState(false);
 
-  // Poll for assignments/state changes every 4 seconds as a fallback
+  // Request Modal State
+  const [showRequestModal, setShowRequestModal] = useState(false);
+  const [equipmentEdits, setEquipmentEdits] = useState<any[]>([]);
+
   useEffect(() => {
     fetchAmbulanceData();
-    const interval = setInterval(fetchAmbulanceData, 4000);
+    const interval = setInterval(fetchAmbulanceData, 4500);
     return () => clearInterval(interval);
   }, []);
 
   async function fetchAmbulanceData() {
     try {
       const aResponse = await apiClient.getAmbulances();
-      // Find the ambulance matching the user's organization
       const myAmbulance = aResponse.results.find(
         (a) => a.organization === user?.organization
       );
@@ -43,15 +48,18 @@ export default function AmbulancePage() {
       }
       setAmbulance(myAmbulance);
 
+      const [eResponse, handData, rData] = await Promise.all([
+        apiClient.getEmergencies(),
+        apiClient.getHandovers().catch(() => ({ results: [] })),
+        apiClient.getAssetChangeRequests().catch(() => ({ results: [] })),
+      ]);
+
       if (myAmbulance.current_emergency) {
-        // Fetch emergency details
-        const eResponse = await apiClient.getEmergencies();
         const myEmergency = eResponse.results.find(
           (e) => e.id === myAmbulance.current_emergency
         );
         if (myEmergency) {
           setEmergency(myEmergency);
-          // Fetch active route
           try {
             const rData = await apiClient.optimizeRoute(myEmergency.id, myAmbulance.id);
             setRoute(rData);
@@ -63,24 +71,23 @@ export default function AmbulancePage() {
           setRoute(null);
         }
 
-        // Fetch handover details
-        try {
-          const hResponse = await apiClient.getHandovers();
-          const activeHandover = hResponse.results.find(
-            (h) => h.emergency === myAmbulance.current_emergency && h.status !== 'COMPLETED'
-          );
-          setHandover(activeHandover || null);
-        } catch {
-          setHandover(null);
-        }
+        const activeHandover = handData.results.find(
+          (h) => h.emergency === myAmbulance.current_emergency && h.status !== 'COMPLETED'
+        );
+        setHandover(activeHandover || null);
       } else {
         setEmergency(null);
         setRoute(null);
         setHandover(null);
       }
+
+      // Filter change requests for this ambulance
+      const myRequests = rData.results.filter(
+        (r) => r.asset_type === 'AMBULANCE' && r.ambulance === myAmbulance.id
+      );
+      setChangeRequests(myRequests);
       setError('');
     } catch (err) {
-      console.error(err);
       setError('Connection failure retrieving ambulance profile.');
     } finally {
       setLoading(false);
@@ -99,7 +106,7 @@ export default function AmbulancePage() {
       await apiClient.updateAmbulanceStatus(ambulance.id, newStatus);
       if (emergency) {
         let newEmergencyStatus = '';
-        if (newStatus === 'ACCEPTED') newEmergencyStatus = 'EN_ROUTE'; // backend state updates
+        if (newStatus === 'ACCEPTED') newEmergencyStatus = 'EN_ROUTE';
         if (newStatus === 'EN_ROUTE') newEmergencyStatus = 'EN_ROUTE';
         if (newStatus === 'ARRIVED') newEmergencyStatus = 'ARRIVED';
         
@@ -119,7 +126,6 @@ export default function AmbulancePage() {
     setSimulating(true);
     setSimStep(0);
 
-    // 1. Transition status to EN_ROUTE
     await updateStatus('EN_ROUTE');
 
     const nodes = route.nodes;
@@ -127,7 +133,6 @@ export default function AmbulancePage() {
       setSimStep(i);
       const node = nodes[i];
       try {
-        // Update coordinates in the database
         await apiClient.updateAmbulanceStatus(ambulance.id, 'EN_ROUTE');
         await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api'}/ambulances/${ambulance.id}/`, {
           method: 'PATCH',
@@ -143,11 +148,9 @@ export default function AmbulancePage() {
       } catch (err) {
         console.error('Error updating coordinate tick:', err);
       }
-      // Wait 2 seconds between node movements
       await new Promise((resolve) => setTimeout(resolve, 2000));
     }
 
-    // 2. Journey completes, transition status to ARRIVED
     await updateStatus('ARRIVED');
     setSimulating(false);
   }
@@ -178,24 +181,66 @@ export default function AmbulancePage() {
     }
   }
 
+  // Open equipment request modal
+  function handleOpenRequestModal() {
+    if (!ambulance) return;
+    setEquipmentEdits(
+      ambulance.equipment?.map((e) => ({
+        equipment_name: e.equipment_name,
+        quantity: e.quantity,
+        available: e.available,
+      })) || []
+    );
+    setShowRequestModal(true);
+  }
+
+  // Submit equipment change request
+  async function submitEquipmentChangeRequest() {
+    if (!ambulance) return;
+    setSaving(true);
+    try {
+      await apiClient.createAssetChangeRequest({
+        asset_type: 'AMBULANCE',
+        ambulance: ambulance.id,
+        requested_changes: equipmentEdits,
+      });
+      setShowRequestModal(false);
+      await fetchAmbulanceData();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to submit request');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (loading) return <LoadingState />;
   if (error) return <div className="p-6"><ErrorState message={error} /></div>;
   if (!ambulance) return <div className="p-6 text-slate-400">Loading response vehicle profile...</div>;
 
   return (
     <div className="min-h-screen bg-slate-950 p-4 md:p-6 text-slate-200">
+      {/* Header */}
       <header className="mb-6 flex items-center justify-between border-b border-slate-800 pb-4">
         <div>
-          <h1 className="text-xl md:text-2xl font-bold text-white">Ambulance {ambulance.registration_number} Console</h1>
-          <p className="text-xs text-slate-400">Operator dashboard (Mobile responsive)</p>
+          <h1 className="text-xl md:text-2xl font-bold text-white flex items-center gap-2">
+            <span className="h-3 w-3 bg-sky-500 rounded-full animate-pulse"></span>
+            Ambulance {ambulance.registration_number} Console
+          </h1>
+          <p className="text-xs text-slate-400">Mobile Responsive Operator Panel</p>
         </div>
-        <Button variant="secondary" size="small" onClick={logout}>Logout</Button>
+        <div className="flex gap-3">
+          <Button variant="secondary" size="small" onClick={handleOpenRequestModal}>
+            Request Equipment Update
+          </Button>
+          <Button variant="secondary" size="small" onClick={logout}>Logout</Button>
+        </div>
       </header>
 
+      {/* Main Grid Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Ambulance Profile and status */}
+        {/* Left Column - Ambulance Status & Request History */}
         <div className="lg:col-span-1 space-y-6">
-          <Card title="Ambulance Details" className="glass-panel">
+          <Card title="Vehicle Diagnostics" className="glass-panel">
             <div className="space-y-3 text-sm">
               <div className="flex justify-between">
                 <span className="text-slate-400">Organization:</span>
@@ -218,6 +263,20 @@ export default function AmbulancePage() {
             </div>
           </Card>
 
+          {/* Current Equipment List */}
+          <Card title="Current Equipment List" className="glass-panel">
+            <div className="flex flex-wrap gap-2">
+              {ambulance.equipment?.map((e) => (
+                <span key={e.id} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs border ${
+                  e.available && e.quantity > 0 ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-red-950/20 border-red-900/40 text-red-400'
+                }`}>
+                  {e.equipment_name} ({e.quantity})
+                </span>
+              )) || <div className="text-xs text-slate-500">No equipment configured.</div>}
+            </div>
+          </Card>
+
+          {/* Request Actions panel */}
           {emergency && (
             <Card title="Status Transition Actions" className="glass-panel border-indigo-950">
               <div className="flex flex-col gap-2">
@@ -249,9 +308,37 @@ export default function AmbulancePage() {
               </div>
             </Card>
           )}
+
+          {/* Request Audit History */}
+          <Card title="Equipment Change Queries" className="glass-panel">
+            <div className="space-y-3 max-h-48 overflow-y-auto pr-1 text-xs">
+              {changeRequests.map((req) => (
+                <div key={req.id} className="border-b border-slate-900 pb-2">
+                  <div className="flex justify-between">
+                    <span className="font-semibold text-white">Query #{req.id}</span>
+                    <span className={`font-bold ${
+                      req.status === 'APPROVED' ? 'text-emerald-400' :
+                      req.status === 'REJECTED' ? 'text-red-400' : 'text-amber-400 animate-pulse'
+                    }`}>
+                      {req.status}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-1">Submitted at {new Date(req.created_at).toLocaleTimeString()}</div>
+                  {req.rejection_reason && (
+                    <div className="text-[10px] text-red-400/80 bg-red-955/15 p-1 rounded mt-1 border border-red-950/30">
+                      Reason: {req.rejection_reason}
+                    </div>
+                  )}
+                </div>
+              ))}
+              {changeRequests.length === 0 && (
+                <div className="text-slate-600 text-center py-4">No equipment update queries submitted.</div>
+              )}
+            </div>
+          </Card>
         </div>
 
-        {/* Assigned Emergency Details */}
+        {/* Right Columns - Assigned Callout & Handovers */}
         <div className="lg:col-span-2 space-y-6">
           {emergency ? (
             <>
@@ -348,7 +435,7 @@ export default function AmbulancePage() {
                   <div className="space-y-4">
                     <div className="flex justify-between items-center text-sm border-b border-slate-850 pb-2">
                       <span className="text-slate-400">Handover Status:</span>
-                      <span className="font-bold text-indigo-400 uppercase">{handover.status}</span>
+                      <strong className="text-indigo-400 uppercase">{handover.status}</strong>
                     </div>
 
                     {handover.status === 'STARTED' && (
@@ -410,6 +497,57 @@ export default function AmbulancePage() {
           )}
         </div>
       </div>
+
+      {/* Equipment Change Request Modal */}
+      {showRequestModal && (
+        <Modal title="Request Equipment Modification" onClose={() => setShowRequestModal(false)}>
+          <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+            <p className="text-slate-400 text-xs">
+              Proposed equipment updates will be routed to the system administrator for audit verification. No direct database updates are performed.
+            </p>
+            {equipmentEdits.map((eq, index) => (
+              <div key={eq.equipment_name} className="border border-slate-850 p-3 rounded bg-slate-950/50 flex items-center justify-between gap-4">
+                <div className="font-bold text-slate-300 text-xs capitalize">{eq.equipment_name}</div>
+                <div className="flex items-center gap-4">
+                  <div className="w-24">
+                    <label className="text-[10px] text-slate-500 block mb-0.5">Quantity</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={eq.quantity}
+                      onChange={(e) => {
+                        const newEdits = [...equipmentEdits];
+                        newEdits[index].quantity = parseInt(e.target.value) || 0;
+                        setEquipmentEdits(newEdits);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-white text-xs focus:border-indigo-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-500 block mb-0.5">Available</label>
+                    <input
+                      type="checkbox"
+                      checked={eq.available}
+                      onChange={(e) => {
+                        const newEdits = [...equipmentEdits];
+                        newEdits[index].available = e.target.checked;
+                        setEquipmentEdits(newEdits);
+                      }}
+                      className="h-5 w-5 bg-slate-950 border border-slate-800 rounded accent-indigo-500"
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+            <div className="flex justify-end gap-3 mt-5 pt-3 border-t border-slate-800">
+              <Button variant="secondary" onClick={() => setShowRequestModal(false)} disabled={saving}>Cancel</Button>
+              <Button onClick={submitEquipmentChangeRequest} disabled={saving}>
+                {saving ? 'Submitting...' : 'Submit Request'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

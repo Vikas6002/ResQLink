@@ -10,4 +10,5 @@ urlpatterns = [
     path("api/optimization/", include("optimization.urls")),
     path("api/routes/", include("routes.urls")),
     path("api/", include("dispatch.urls")),
+    path("api/asset-change-requests/", include("hospitals.change_urls")),
 ]
