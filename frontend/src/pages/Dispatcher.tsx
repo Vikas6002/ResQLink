@@ -584,7 +584,7 @@ export default function DispatcherPage() {
             <p className="text-red-400 font-bold">
               The notified hospital has reported NOT READY or timed out due to:
             </p>
-            <div className="bg-red-955/20 border border-red-900/40 p-3 rounded text-sm text-red-400 font-semibold mb-3">
+            <div className="bg-red-950/20 border border-red-900/40 p-3 rounded text-sm text-red-400 font-semibold mb-3">
               {reassignAlert.reason || 'Hospital Alert Timeout'}
             </div>
             <p>Ranked hospital alternatives have been re-assessed. Please select a fallback candidate:</p>

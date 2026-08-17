@@ -228,7 +228,7 @@ export default function AdminPage() {
                 <div className="flex flex-wrap gap-2">
                   {a.equipment?.map((e) => (
                     <span key={e.id} className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs border ${
-                      e.available && e.quantity > 0 ? 'bg-slate-950/80 border-slate-700 text-slate-300' : 'bg-red-955/20 border-red-900/40 text-red-400'
+                      e.available && e.quantity > 0 ? 'bg-slate-950/80 border-slate-700 text-slate-300' : 'bg-red-950/20 border-red-900/40 text-red-400'
                     }`}>
                       {e.equipment_name} ({e.quantity})
                     </span>
