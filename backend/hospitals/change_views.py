@@ -41,14 +41,10 @@ class AssetChangeRequestViewSet(viewsets.ModelViewSet):
             hospital = serializer.validated_data.get("hospital")
             if not hospital:
                 raise ValidationError("hospital reference is required for hospital change requests.")
-            if user.role != "ADMIN" and hospital.organization_id != user.organization_id:
-                raise PermissionDenied("You can only request updates for your own hospital organization.")
         elif asset_type == "AMBULANCE":
             ambulance = serializer.validated_data.get("ambulance")
             if not ambulance:
                 raise ValidationError("ambulance reference is required for ambulance change requests.")
-            if user.role != "ADMIN" and ambulance.organization_id != user.organization_id:
-                raise PermissionDenied("You can only request updates for your own ambulance organization.")
         else:
             raise ValidationError("Invalid asset_type. Must be HOSPITAL or AMBULANCE.")
 

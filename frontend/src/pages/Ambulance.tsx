@@ -11,6 +11,8 @@ import { ErrorState } from '../components/ErrorState';
 
 export default function AmbulancePage() {
   const { user, logout } = useAuth();
+  const [ambulancesList, setAmbulancesList] = useState<Ambulance[]>([]);
+  const [selectedAmbulanceId, setSelectedAmbulanceId] = useState<number | null>(null);
   const [ambulance, setAmbulance] = useState<Ambulance | null>(null);
   const [emergency, setEmergency] = useState<Emergency | null>(null);
   const [route, setRoute] = useState<OptimizedRoute | null>(null);
@@ -33,16 +35,31 @@ export default function AmbulancePage() {
     fetchAmbulanceData();
     const interval = setInterval(fetchAmbulanceData, 4500);
     return () => clearInterval(interval);
-  }, []);
+  }, [selectedAmbulanceId]);
 
   async function fetchAmbulanceData() {
     try {
       const aResponse = await apiClient.getAmbulances();
-      const myAmbulance = aResponse.results.find(
-        (a) => a.organization === user?.organization
-      );
+      setAmbulancesList(aResponse.results);
+
+      if (aResponse.results.length === 0) {
+        setError('No ambulances registered in the system.');
+        setLoading(false);
+        return;
+      }
+
+      let activeId = selectedAmbulanceId;
+      if (!activeId) {
+        // Fallback: match by organization or pick first
+        const defaultAmb = aResponse.results.find((a) => a.organization === user?.organization) || aResponse.results[0];
+        if (defaultAmb) {
+          activeId = defaultAmb.id;
+          setSelectedAmbulanceId(defaultAmb.id);
+        }
+      }
+
+      const myAmbulance = aResponse.results.find((a) => a.id === activeId);
       if (!myAmbulance) {
-        setError('No ambulance registered for your organization.');
         setLoading(false);
         return;
       }
@@ -81,7 +98,6 @@ export default function AmbulancePage() {
         setHandover(null);
       }
 
-      // Filter change requests for this ambulance
       const myRequests = rData.results.filter(
         (r) => r.asset_type === 'AMBULANCE' && r.ambulance === myAmbulance.id
       );
@@ -95,7 +111,7 @@ export default function AmbulancePage() {
   }
 
   // Subscribe to real-time events for this ambulance
-  useWebSockets('ambulance', ambulance?.id, (data) => {
+  useWebSockets('ambulance', selectedAmbulanceId, (data) => {
     console.log('WS Ambulance Event:', data);
     fetchAmbulanceData();
   });
@@ -220,7 +236,7 @@ export default function AmbulancePage() {
   return (
     <div className="min-h-screen bg-slate-950 p-4 md:p-6 text-slate-200">
       {/* Header */}
-      <header className="mb-6 flex items-center justify-between border-b border-slate-800 pb-4">
+      <header className="mb-6 flex flex-col md:flex-row md:items-center justify-between border-b border-slate-800 pb-4 gap-4">
         <div>
           <h1 className="text-xl md:text-2xl font-bold text-white flex items-center gap-2">
             <span className="h-3 w-3 bg-sky-500 rounded-full animate-pulse"></span>
@@ -228,6 +244,24 @@ export default function AmbulancePage() {
           </h1>
           <p className="text-xs text-slate-400">Mobile Responsive Operator Panel</p>
         </div>
+
+        {/* Dropdown Selector (Additional Feature) */}
+        <div className="flex items-center gap-4">
+          <label className="text-xs text-slate-400 font-semibold">Switch Ambulance Vehicle:</label>
+          <select
+            value={selectedAmbulanceId || ''}
+            onChange={(e) => {
+              const val = parseInt(e.target.value) || null;
+              setSelectedAmbulanceId(val);
+            }}
+            className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-semibold"
+          >
+            {ambulancesList.map((a) => (
+              <option key={a.id} value={a.id}>Ambulance {a.registration_number} ({a.capability_level})</option>
+            ))}
+          </select>
+        </div>
+
         <div className="flex gap-3">
           <Button variant="secondary" size="small" onClick={handleOpenRequestModal}>
             Request Equipment Update
@@ -268,7 +302,7 @@ export default function AmbulancePage() {
             <div className="flex flex-wrap gap-2">
               {ambulance.equipment?.map((e) => (
                 <span key={e.id} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs border ${
-                  e.available && e.quantity > 0 ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-red-950/20 border-red-900/40 text-red-400'
+                  e.available && e.quantity > 0 ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-red-955/20 border-red-900/40 text-red-400'
                 }`}>
                   {e.equipment_name} ({e.quantity})
                 </span>

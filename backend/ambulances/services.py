@@ -72,8 +72,6 @@ def get_ambulances_for_user(user):
     qs = Ambulance.objects.select_related("organization", "current_emergency").prefetch_related(
         "equipment"
     )
-    if user.role in ("ADMIN", "DISPATCHER"):
+    if user.is_authenticated:
         return qs.all()
-    if user.role == "AMBULANCE_OPERATOR" and user.organization_id:
-        return qs.filter(organization_id=user.organization_id)
     return qs.none()

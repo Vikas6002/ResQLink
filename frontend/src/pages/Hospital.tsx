@@ -11,6 +11,8 @@ import { ErrorState } from '../components/ErrorState';
 
 export default function HospitalPage() {
   const { user, logout } = useAuth();
+  const [hospitalsList, setHospitalsList] = useState<Hospital[]>([]);
+  const [selectedHospitalId, setSelectedHospitalId] = useState<number | null>(null);
   const [hospital, setHospital] = useState<Hospital | null>(null);
   const [alerts, setAlerts] = useState<HospitalAlert[]>([]);
   const [handovers, setHandovers] = useState<Handover[]>([]);
@@ -33,16 +35,31 @@ export default function HospitalPage() {
     fetchHospitalData();
     const interval = setInterval(fetchHospitalData, 4500);
     return () => clearInterval(interval);
-  }, []);
+  }, [selectedHospitalId]);
 
   async function fetchHospitalData() {
     try {
       const hResponse = await apiClient.getHospitals();
-      const myHospital = hResponse.results.find(
-        (h) => h.organization === user?.organization
-      );
+      setHospitalsList(hResponse.results);
+
+      if (hResponse.results.length === 0) {
+        setError('No hospitals registered in the system.');
+        setLoading(false);
+        return;
+      }
+
+      let activeId = selectedHospitalId;
+      if (!activeId) {
+        // Fallback: match by user organization, else first hospital
+        const defaultHosp = hResponse.results.find(h => h.organization === user?.organization) || hResponse.results[0];
+        if (defaultHosp) {
+          activeId = defaultHosp.id;
+          setSelectedHospitalId(defaultHosp.id);
+        }
+      }
+
+      const myHospital = hResponse.results.find((h) => h.id === activeId);
       if (!myHospital) {
-        setError('No hospital profile registered for your organization.');
         setLoading(false);
         return;
       }
@@ -75,7 +92,7 @@ export default function HospitalPage() {
   }
 
   // Subscribe to real-time events for this hospital
-  useWebSockets('hospital', hospital?.id, (data) => {
+  useWebSockets('hospital', selectedHospitalId, (data) => {
     console.log('WS Hospital Event:', data);
     fetchHospitalData();
   });
@@ -130,7 +147,7 @@ export default function HospitalPage() {
     }
   }
 
-  // Open resource update request form
+  // Open resource update request modal
   function handleOpenRequestModal() {
     if (!hospital) return;
     setResourceEdits(
@@ -172,14 +189,32 @@ export default function HospitalPage() {
   return (
     <div className="min-h-screen bg-slate-950 p-6 text-slate-200">
       {/* Header */}
-      <header className="mb-6 flex items-center justify-between border-b border-slate-800 pb-4">
+      <header className="mb-6 flex flex-col md:flex-row md:items-center justify-between border-b border-slate-800 pb-4 gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">
             <span className="h-3 w-3 bg-emerald-500 rounded-full animate-pulse"></span>
-            {hospital.name} Trauma Center
+            {hospital.name} Emergency Console
           </h1>
           <p className="text-xs text-slate-400">Hospital Scoped Emergency Response Console</p>
         </div>
+
+        {/* Dropdown Selector (Additional Feature) */}
+        <div className="flex items-center gap-4">
+          <label className="text-xs text-slate-400 font-semibold">Switch Hospital Center:</label>
+          <select
+            value={selectedHospitalId || ''}
+            onChange={(e) => {
+              const val = parseInt(e.target.value) || null;
+              setSelectedHospitalId(val);
+            }}
+            className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-semibold"
+          >
+            {hospitalsList.map((h) => (
+              <option key={h.id} value={h.id}>{h.name}</option>
+            ))}
+          </select>
+        </div>
+
         <div className="flex gap-3">
           <Button variant="secondary" size="small" onClick={handleOpenRequestModal}>
             Request Capacity Update

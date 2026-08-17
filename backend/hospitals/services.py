@@ -66,8 +66,6 @@ def user_can_view_hospital(user, hospital):
 
 def get_hospitals_for_user(user):
     qs = Hospital.objects.select_related("organization").prefetch_related("resources")
-    if user.role in ("ADMIN", "DISPATCHER"):
+    if user.is_authenticated:
         return qs.all()
-    if user.role == "HOSPITAL_STAFF" and user.organization_id:
-        return qs.filter(organization_id=user.organization_id)
     return qs.none()
